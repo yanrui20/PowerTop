@@ -161,3 +161,36 @@
 
 // Hardware availability
 "Built-in battery not detected. PowerTop requires a MacBook." = "未检测到内置电池。PowerTop 仅支持 MacBook。";
+
+// Energy modes and menu bar battery
+"Automatic" = "自动";
+"Low Power" = "低电量";
+"High Power" = "高电量";
+"On Battery" = "使用电池时";
+"On Power Adapter" = "连接电源时";
+"Energy Mode" = "电源模式";
+"Show Battery in Menu Bar" = "菜单栏显示电量";
+"Unable to read energy modes." = "无法读取电源模式。";
+"High Power Mode is not available for this power source." = "当前供电方式不支持高电量模式。";
+"macOS did not confirm the requested energy mode." = "macOS 未确认所选电源模式，请在系统设置中检查。";
+"Energy mode change cancelled." = "已取消切换电源模式。";
+"Changing modes requires administrator authorization." = "切换模式需要管理员授权。";
+
+// Refresh, quick switching and significant energy
+"Energy helper is missing. Reinstall PowerTop." = "缺少电源模式服务，请重新安装 PowerTop。";
+"Quick switching is unavailable. Enable it again to repair authorization." = "免密切换服务不可用，请重新启用以修复授权。";
+"Quick switching enabled" = "已启用免密切换";
+"Quick Switching" = "免密切换";
+"Authorize once to switch without a password. The helper can only change energy modes." = "首次授权后，切换模式无需重复输入密码。此服务只能更改电源模式。";
+"Enable or Repair Quick Switching" = "启用或修复免密切换";
+"Remove Quick Switching" = "移除免密切换服务";
+"Refresh Now" = "立即刷新";
+"Using Significant Energy" = "使用大量能耗的 App";
+"Reading energy usage…" = "正在读取耗能应用…";
+"System energy usage is currently unavailable." = "暂时无法读取系统耗能应用列表。";
+"No Apps Using Significant Energy" = "没有使用大量能耗的 App";
+"Open Activity Monitor" = "打开活动监视器";
+"Read Every" = "读取间隔";
+"Seconds" = "秒";
+"Apply" = "应用";
+"Enter an interval from 1 to 300 seconds." = "请输入 1 至 300 秒之间的读取间隔。";

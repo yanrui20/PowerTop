@@ -8,6 +8,23 @@ import ServiceManagement
 @MainActor
 @Observable
 final class PowerMonitor {
+    private let defaults: UserDefaults
+    let energyModes: EnergyModeController
+    let significantEnergyApps = SignificantEnergyApps()
+    var isPopoverVisible = false
+    private static let showBatteryInMenuBarKey = "showBatteryInMenuBar"
+    var showBatteryInMenuBar: Bool {
+        didSet { defaults.set(showBatteryInMenuBar, forKey: Self.showBatteryInMenuBarKey) }
+    }
+
+    var menuBarPresentation: MenuBarPresentation {
+        MenuBarPresentation(available: isDataAvailable, percent: currentData.batteryPercent,
+                            charging: currentData.isBatteryCharging, onAC: currentData.effectiveIsOnAC,
+                            showBattery: showBatteryInMenuBar, showPower: showPowerInMenuBar,
+                            powerText: currentData.menuBarPowerText,
+                            mode: energyModes.settings[currentData.isOnAC ? .adapter : .battery]?.mode)
+    }
+
     private static let showPowerInMenuBarKey = "showPowerInMenuBar"
 
     var currentData: PowerData = .empty
@@ -32,7 +49,7 @@ final class PowerMonitor {
     }
     var showPowerInMenuBar: Bool {
         didSet {
-            UserDefaults.standard.set(showPowerInMenuBar, forKey: Self.showPowerInMenuBarKey)
+            defaults.set(showPowerInMenuBar, forKey: Self.showPowerInMenuBarKey)
         }
     }
 
@@ -41,7 +58,19 @@ final class PowerMonitor {
     private var iopsRetainedContext: UnsafeMutableRawPointer?
     private var workspaceObservers: [NSObjectProtocol] = []
     private var pendingRefreshWorkItems: [DispatchWorkItem] = []
-    private let updateInterval: TimeInterval = 2.0
+    static let refreshIntervalRange: ClosedRange<Double> = 1...300
+    var updateInterval: TimeInterval {
+        didSet {
+            let valid = Self.validatedInterval(updateInterval)
+            if valid != updateInterval { updateInterval = valid }
+            defaults.set(valid, forKey: "powerRefreshInterval")
+            if timer != nil { scheduleTimer() }
+        }
+    }
+    static func validatedInterval(_ value: Double) -> Double {
+        guard value.isFinite else { return 2 }
+        return min(refreshIntervalRange.upperBound, max(refreshIntervalRange.lowerBound, value))
+    }
     private let connectingACTimeout: TimeInterval = 3.0
 
     private enum MachinePhase: Equatable {
@@ -55,9 +84,14 @@ final class PowerMonitor {
     private var lastUnplugEventAt: Date?
     private var timeEstimator = BatteryTimeEstimator()
 
-    init() {
+    init(defaults: UserDefaults = .standard, energyModes: EnergyModeController? = nil) {
+        self.defaults = defaults
+        self.energyModes = energyModes ?? EnergyModeController()
+        let savedInterval = defaults.object(forKey: "powerRefreshInterval") as? Double ?? 2
+        updateInterval = Self.validatedInterval(savedInterval)
+        showBatteryInMenuBar = defaults.object(forKey: Self.showBatteryInMenuBarKey) as? Bool ?? true
         launchAtLogin = (SMAppService.mainApp.status == .enabled)
-        showPowerInMenuBar = UserDefaults.standard.bool(forKey: Self.showPowerInMenuBarKey)
+        showPowerInMenuBar = defaults.bool(forKey: Self.showPowerInMenuBarKey)
     }
 
     func refreshNow() {
@@ -73,6 +107,7 @@ final class PowerMonitor {
         publishDisplayData(from: raw)
         scheduleTimer()
         setupPowerSourceNotification()
+        energyModes.startMonitoring()
 
         let center = NSWorkspace.shared.notificationCenter
         workspaceObservers.append(
@@ -100,6 +135,7 @@ final class PowerMonitor {
     }
 
     func stop() {
+        energyModes.stopMonitoring()
         timeEstimator.reset()
         timer?.invalidate()
         timer = nil
@@ -119,12 +155,14 @@ final class PowerMonitor {
     }
 
     private func handleSystemSleep() {
+        energyModes.stopMonitoring()
         timeEstimator.reset()
         timer?.invalidate()
         timer = nil
     }
 
     private func handleSystemWake() {
+        energyModes.startMonitoring()
         updateData()
         if timer == nil {
             scheduleTimer()

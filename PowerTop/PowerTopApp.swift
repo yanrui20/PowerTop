@@ -27,6 +27,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // Status item's button window is tiny; a leaked panel is not.
                 return window.frame.width >= 200 && window.frame.height >= 80
             }
+            if let widths = self?.statusItemController?.menuBarLayoutWidths {
+                guard widths.occupied <= widths.button + 1 else {
+                    fputs("smoke-launch FAIL: extra status item spacing: \(widths)\n", stderr)
+                    exit(1)
+                }
+                fputs("smoke-launch compact menu bar: \(widths)\n", stderr)
+            }
             if leaked.isEmpty {
                 fputs("smoke-launch OK: no content window at launch\n", stderr)
                 exit(0)
@@ -70,6 +77,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 @main
 struct PowerTopApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+
+    init() {
+        // Run before SwiftUI evaluates even the uninserted MenuBarExtra.
+        StatusItemController.configureMenuBarSpacing()
+    }
 
     var body: some Scene {
         // SwiftUI requires a Scene. Window/Settings present at launch (the flash).

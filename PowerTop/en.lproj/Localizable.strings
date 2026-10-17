@@ -161,3 +161,36 @@
 
 // Hardware availability
 "Built-in battery not detected. PowerTop requires a MacBook." = "Built-in battery not detected. PowerTop requires a MacBook.";
+
+// Energy modes and menu bar battery
+"Automatic" = "Automatic";
+"Low Power" = "Low Power";
+"High Power" = "High Power";
+"On Battery" = "On Battery";
+"On Power Adapter" = "On Power Adapter";
+"Energy Mode" = "Energy Mode";
+"Show Battery in Menu Bar" = "Show Battery in Menu Bar";
+"Unable to read energy modes." = "Unable to read energy modes.";
+"High Power Mode is not available for this power source." = "High Power Mode is not available for this power source.";
+"macOS did not confirm the requested energy mode." = "macOS did not confirm the requested energy mode.";
+"Energy mode change cancelled." = "Energy mode change cancelled.";
+"Changing modes requires administrator authorization." = "Changing modes requires administrator authorization.";
+
+// Refresh, quick switching and significant energy
+"Energy helper is missing. Reinstall PowerTop." = "Energy helper is missing. Reinstall PowerTop.";
+"Quick switching is unavailable. Enable it again to repair authorization." = "Quick switching is unavailable. Enable it again to repair authorization.";
+"Quick switching enabled" = "Quick switching enabled";
+"Quick Switching" = "Quick Switching";
+"Authorize once to switch without a password. The helper can only change energy modes." = "Authorize once to switch without a password. The helper can only change energy modes.";
+"Enable or Repair Quick Switching" = "Enable or Repair Quick Switching";
+"Remove Quick Switching" = "Remove Quick Switching";
+"Refresh Now" = "Refresh Now";
+"Using Significant Energy" = "Using Significant Energy";
+"Reading energy usage…" = "Reading energy usage…";
+"System energy usage is currently unavailable." = "System energy usage is currently unavailable.";
+"No Apps Using Significant Energy" = "No Apps Using Significant Energy";
+"Open Activity Monitor" = "Open Activity Monitor";
+"Read Every" = "Read Every";
+"Seconds" = "Seconds";
+"Apply" = "Apply";
+"Enter an interval from 1 to 300 seconds." = "Enter an interval from 1 to 300 seconds.";

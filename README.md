@@ -13,6 +13,19 @@ A clean, lightweight menu bar app that shows you exactly how much power your Mac
 
 > **MacBook only** — Requires a Mac with a built-in battery (Apple Silicon MacBook).
 
+## Local additions: energy controls (1.5.0)
+
+- Percentage-only menu bar display; battery and power text remain independently configurable. The popover re-anchors after the status button moves or resizes.
+- Power readings default to every 2 seconds. Set any interval from 1 to 300 seconds, or use Refresh Now. Power-source changes and wake events still refresh immediately.
+- Choose Automatic, Low Power, or High Power separately for battery and adapter use, with system readback after each change.
+- Optional Quick Switching installs a narrowly scoped root helper after one administrator authorization. It accepts only the installing user's exact approved app signature, validates the two power sources and three modes, and never accepts arbitrary commands. No password is stored and sudoers is not changed. Remove it in the same section. This ad-hoc signed local build requires reauthorization after updates/rebuilds.
+- Apps Using Significant Energy comes from Control Center's private, read-only `systemstats_get_top_coalitions` query. Defaults were verified on macOS 26.6.2: 120 seconds, top 5, threshold 60000. This is not a CPU ranking or per-app wattage. Different query times may briefly produce different lists; future macOS changes may make it unavailable, in which case the UI reports that explicitly.
+- Mode/app queries run every 5 seconds only while the panel is open. Long panels scroll to fit the screen.
+
+The optional root-owned helper lives at `/Library/PrivilegedHelperTools/com.kdolphin.PowerTop.EnergyHelper` with its launchd plist at `/Library/LaunchDaemons/com.kdolphin.PowerTop.EnergyHelper.plist`. Build/test scripts do not install it.
+
+Run `bash scripts/test-energy-modes.sh` (optionally `--read-system`) and `bash scripts/test-integration.sh`. The latter tests signed XPC clients, invalid requests, and actual status-item/popover geometry without installing a daemon or changing energy modes. Administrator installation/removal and actual mode switching require manual verification.
+
 ## Finally Know How Much Power You're Using
 
 macOS never tells you the actual watts your MacBook is consuming right now. PowerTop changes that.
@@ -90,6 +103,22 @@ open build/PowerTop.app
 | <a href="screenshot/detail-window-health.png" target="_blank"><img src="screenshot/detail-window-health.png" width="400" alt="Power and battery health"></a> | <a href="screenshot/detail-window-cells.png" target="_blank"><img src="screenshot/detail-window-cells.png" width="400" alt="Cell topology and balance"></a> |
 
 ## What's New
+
+### v1.5.4
+
+- Remove the extra outer spacing macOS adds around fixed-width status items. Register a compact default within the PowerTop process and validate the full status window width, not only the button width.
+
+### v1.5.3
+
+- Reduce menu bar side padding and size the item to its actual content, including charging badges, while preserving popover alignment.
+
+### v1.5.2
+
+- Fix helper installation failing at code-signature verification. Once enabled or repaired, mode switches use the helper without repeated password prompts. While actively charging, a small bolt is attached to the battery icon or immediately after the percentage; AC connection alone does not show the charging badge.
+
+### v1.5.1
+
+- Menu bar icons and text are yellow in Low Power Mode, white in High Power Mode, and use the system color in Automatic Mode. The color follows the active battery/adapter profile. System mode changes are checked every 5 seconds even with the panel closed; successful changes in PowerTop update immediately.
 
 ### v1.4.2
 
