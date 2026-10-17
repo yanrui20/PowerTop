@@ -153,12 +153,12 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSWindowDelegate 
         button.attributedTitle = presentation.attributedTitle(font: .monospacedDigitSystemFont(ofSize: 12, weight: .medium))
         button.image = presentation.symbolImage()
         button.imagePosition = presentation.symbol == nil ? .noImage : (presentation.title.isEmpty ? .imageOnly : .imageLeading)
-        // AppKit's automatic width adds roughly 8 pt on each side. Keep 4 pt
-        // per side, measuring attachments too so the charging badge isn't clipped.
+        // Keep only 2 pt per side while retaining a usable minimum hit area.
+        // Measure attachments too so the charging badge isn't clipped.
         let textWidth = button.attributedTitle.size().width
         let imageWidth = button.image?.size.width ?? 0
         let gap: CGFloat = textWidth > 0 && imageWidth > 0 ? 4 : 0
-        let compactWidth = max(24, ceil(textWidth + imageWidth + gap) + 8)
+        let compactWidth = max(24, ceil(textWidth + imageWidth + gap) + 4)
         if statusItem.length != compactWidth { statusItem.length = compactWidth }
         scheduleReanchor()
     }

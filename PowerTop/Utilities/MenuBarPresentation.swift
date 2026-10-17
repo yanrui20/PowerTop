@@ -53,10 +53,11 @@ struct MenuBarPresentation: Equatable {
         if let index = titleBadgeIndex {
             let attachment = NSTextAttachment()
             attachment.image = Self.symbolImage("bolt.fill", tint: tint)
-            attachment.bounds = NSRect(x: 2, y: 0, width: 6, height: 10)
+            attachment.bounds = NSRect(x: 0, y: 0, width: 6, height: 10)
             let badge = NSMutableAttributedString(string: "", attributes: attributes)
             badge.append(NSAttributedString(attachment: attachment))
-            badge.append(NSAttributedString(string: " ", attributes: attributes))
+            // The title already contains a separator when power follows. A
+            // trailing space here needlessly widens percentage-only status items.
             result.insert(badge, at: index)
         }
         return result
