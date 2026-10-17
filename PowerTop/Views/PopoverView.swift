@@ -488,6 +488,7 @@ struct PopoverView: View {
             }
             .font(.system(size: 10)).buttonStyle(.borderless)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Footer
