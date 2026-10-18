@@ -9,9 +9,12 @@ actor TestBackend: EnergyModeBackend {
         .adapter: .init(mode: .high, supportsHighPower: true)
     ]
     var readFails = false
+    var reads = 0
+    func readCount() -> Int { reads }
     func configure(_ behavior: Behavior) { self.behavior = behavior }
     func failReads(_ value: Bool) { readFails = value }
     func read() async throws -> [EnergyPowerSource: EnergyModeSetting] {
+        reads += 1
         if readFails { throw EnergyModeError.unavailable }
         return settings
     }
@@ -22,6 +25,32 @@ actor TestBackend: EnergyModeBackend {
         case .cancel: throw EnergyModeError.cancelled
         case .fail: throw EnergyModeError.commandFailed("Permission denied")
         }
+    }
+}
+
+// Hold one background read across a completed user action to exercise stale results.
+actor DelayedModeBackend: EnergyModeBackend {
+    var current: [EnergyPowerSource: EnergyModeSetting] = [
+        .adapter: .init(mode: .automatic, supportsHighPower: true)
+    ]
+    var holdNext = false
+    var pending: CheckedContinuation<[EnergyPowerSource: EnergyModeSetting], Error>?
+    func hold() { holdNext = true }
+    func isPending() -> Bool { pending != nil }
+    func finish(fail: Bool) {
+        if fail { pending?.resume(throwing: EnergyModeError.unavailable) }
+        else { pending?.resume(returning: [.adapter: .init(mode: .automatic, supportsHighPower: true)]) }
+        pending = nil
+    }
+    func read() async throws -> [EnergyPowerSource: EnergyModeSetting] {
+        if holdNext {
+            holdNext = false
+            return try await withCheckedThrowingContinuation { pending = $0 }
+        }
+        return current
+    }
+    func apply(_ mode: EnergyMode, source: EnergyPowerSource, setting: EnergyModeSetting) async throws {
+        current[source] = .init(mode: mode, supportsHighPower: true)
     }
 }
 
@@ -98,20 +127,21 @@ struct EnergyModeTests {
             .init(available: available, percent: percent, charging: charging, onAC: true,
                   showBattery: battery, showPower: power, powerText: "23W")
         }
-        precondition(label(76).title == "76%" && label(76).symbol == nil)
-        precondition(label(20, true).symbol == nil)
-        precondition(label(76, false, true, true).title == "76% · 23W")
+        precondition(label(76).title.isEmpty && label(76).batteryPercent == 76)
+        precondition(label(20, true).symbol == "battery.50")
+        precondition(label(76, false, true, true).title == "23W")
         precondition(label(76, false, false, true).symbol == nil)
         precondition(label(76, false, false, false).symbol == "battery.50")
-        precondition(label(-1).title == "0%" && label(120).title == "100%")
-        precondition(label(76, false, true, true, false).title == "")
-        precondition(label(0).symbol == nil && label(100).symbol == nil)
-
-        precondition(label(20, true).chargingBadge == .afterPercentage)
+        precondition(label(-1).batteryPercent == 0 && label(120).batteryPercent == 100)
+        precondition(label(76, false, true, true, false).batteryPercent == nil)
+        precondition(label(0).symbolImage()?.size == label(100).symbolImage()?.size)
+        precondition(label(100, true).symbolImage()?.size == label(100).symbolImage()?.size,
+                     "Charging must not widen the numbered battery")
+        precondition(label(20, true).chargingBadge == .battery)
         precondition(label(20, true, false, false).chargingBadge == .battery)
         precondition(label(20, false).chargingBadge == .none)
         precondition(label(20, true, false, true).chargingBadge == .afterPower)
-        precondition(label(20, true, true, true).titleBadgeIndex == 3)
+        precondition(label(20, true, true, true).titleBadgeIndex == nil)
         precondition(label(20, true, true, true, false).chargingBadge == .none)
 
         let records = try EnergyAppParser.parse([
@@ -160,6 +190,39 @@ struct EnergyModeTests {
         await backend.failReads(false)
         await controller.refresh()
         precondition(controller.settings.count == 2 && controller.errorMessage == nil)
+        for fail in [false, true] {
+            let delayed = DelayedModeBackend()
+            let duringRead = EnergyModeController(backend: delayed)
+            await duringRead.refresh()
+            await delayed.hold()
+            let background = Task { await duringRead.refresh() }
+            while !(await delayed.isPending()) { await Task.yield() }
+            precondition(duringRead.isRefreshing && !duringRead.isChanging)
+            await duringRead.select(.low, source: .adapter)
+            precondition(duringRead.settings[.adapter]?.mode == .low, "Click during polling must apply")
+            await delayed.finish(fail: fail)
+            await background.value
+            precondition(duringRead.settings[.adapter]?.mode == .low, "Stale read cannot undo selection")
+            precondition(duringRead.errorMessage == nil, "Stale errors cannot replace user action result")
+        }
+        let cadenceBackend = TestBackend()
+        let cadenceModes = EnergyModeController(backend: cadenceBackend)
+        let cadence = PowerMonitor(defaults: defaults, energyModes: cadenceModes,
+            immediateSampler: .init(request: { throw EnergyModeError.unavailable }, readTimestamp: { 100 }))
+        cadence.updateInterval = 300
+        cadence.start()
+        try await Task.sleep(for: .milliseconds(100))
+        let initialReads = await cadenceBackend.readCount()
+        precondition(initialReads == 1)
+        cadence.updateInterval = 1
+        try await Task.sleep(for: .milliseconds(1200))
+        let fastReads = await cadenceBackend.readCount()
+        precondition(fastReads == initialReads + 2, "Mode cadence must follow the changed refresh interval")
+        cadence.updateInterval = 300
+        try await Task.sleep(for: .milliseconds(1200))
+        let slowReads = await cadenceBackend.readCount()
+        precondition(slowReads == fastReads + 1, "Old frequent timer must be cancelled")
+        cadence.stop()
         if CommandLine.arguments.contains("--read-system") {
             let records = try await SystemEnergyAppReader().read()
             print("System significant-energy apps: \(records.map(\.bundleID))")
@@ -170,6 +233,6 @@ struct EnergyModeTests {
                 }
             }
         }
-        print("PASS: parsing, source isolation, unsupported modes, cancellation, verification, read failures, menu bar display")
+        print("PASS: clicks during background reads, stale result/error rejection, parsing, source isolation, unsupported modes, cancellation, verification, read failures, menu bar display")
     }
 }

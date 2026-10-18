@@ -25,7 +25,7 @@ struct StatusLayoutTests {
         let backend = ColorTestBackend()
         let modes = EnergyModeController(backend: backend)
         let monitor = PowerMonitor(defaults: defaults, energyModes: modes)
-        monitor.showPowerInMenuBar = false
+        monitor.showPowerInMenuBar = true
         let controller = StatusItemController(monitor: monitor)
         try await Task.sleep(for: .milliseconds(200))
         if let widths = controller.menuBarLayoutWidths {
@@ -33,7 +33,7 @@ struct StatusLayoutTests {
             print("PASS closed menu bar: \(widths)")
         } else { preconditionFailure("Missing status item window") }
         // The panel remains closed throughout these color checks.
-        modes.startMonitoring()
+        modes.startMonitoring(interval: 5)
         try await Task.sleep(for: .milliseconds(150))
         precondition(monitor.menuBarPresentation.tint == .yellow)
         precondition(controller.testTextColor == .systemYellow)
@@ -48,13 +48,14 @@ struct StatusLayoutTests {
             if let dir = ProcessInfo.processInfo.environment["POWERTOP_TEST_PREVIEW_DIR"] {
                 try controller.saveButtonForTest(to: URL(fileURLWithPath: dir).appendingPathComponent("mode-\(mode.rawValue)-text.png"))
             }
-            monitor.showBatteryInMenuBar = false
+            monitor.showPowerInMenuBar = false
+            monitor.showBatteryInMenuBar = true
             try await Task.sleep(for: .milliseconds(150))
             precondition(controller.testImageIsTemplate == (color == nil))
             if let dir = ProcessInfo.processInfo.environment["POWERTOP_TEST_PREVIEW_DIR"] {
                 try controller.saveButtonForTest(to: URL(fileURLWithPath: dir).appendingPathComponent("mode-\(mode.rawValue)-icon.png"))
             }
-            monitor.showBatteryInMenuBar = true
+            monitor.showPowerInMenuBar = true
         }
         modes.stopMonitoring()
         print("PASS: mode colors update for text/icons with the panel closed; automatic restores system tint")
@@ -80,18 +81,20 @@ struct StatusLayoutTests {
             controller.showForLayoutTest()
         }
         if let dir = ProcessInfo.processInfo.environment["POWERTOP_TEST_PREVIEW_DIR"] {
-            for mode in EnergyMode.allCases {
-                for (battery, power) in [(false, false), (true, false), (true, true), (false, true)] {
-                    let presentation = MenuBarPresentation(available: true, percent: 100, charging: true, onAC: true,
-                        showBattery: battery, showPower: power, powerText: "23W", mode: mode)
-                    controller.showPresentationForTest(presentation)
-                    try await Task.sleep(for: .milliseconds(150))
-                    let widths = controller.menuBarLayoutWidths!
-                    precondition(widths.occupied <= widths.button + 1, "Charging layout must not reserve extra outer spacing")
-                    print("PASS charging layout: \(presentation.title), \(widths)")
-                    let rect = controller.layoutTestAnchor
-                    precondition(abs(rect.width - controller.layoutTestPositioningRect.width) < 1)
-                    try controller.saveButtonForTest(to: URL(fileURLWithPath: dir).appendingPathComponent("charging-\(mode.rawValue)-\(battery)-\(power).png"))
+            for percent in [0, 9, 76, 100] {
+                for mode in EnergyMode.allCases {
+                    for (battery, power) in [(false, false), (true, false), (true, true), (false, true)] {
+                        let presentation = MenuBarPresentation(available: true, percent: percent, charging: true, onAC: true,
+                            showBattery: battery, showPower: power, powerText: "23W", mode: mode)
+                        controller.showPresentationForTest(presentation)
+                        try await Task.sleep(for: .milliseconds(150))
+                        let widths = controller.menuBarLayoutWidths!
+                        precondition(widths.occupied <= widths.button + 1, "Charging layout must not reserve extra outer spacing")
+                        print("PASS charging layout: \(presentation.title), \(widths)")
+                        let rect = controller.layoutTestAnchor
+                        precondition(abs(rect.width - controller.layoutTestPositioningRect.width) < 1)
+                        try controller.saveButtonForTest(to: URL(fileURLWithPath: dir).appendingPathComponent("charging-\(percent)-\(mode.rawValue)-\(battery)-\(power).png"))
+                    }
                 }
             }
         }

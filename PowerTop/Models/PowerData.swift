@@ -22,8 +22,9 @@ struct BatteryParallelCellCurrent: Equatable {
 
 struct PowerData {
     // Core power metrics
-    let systemPowerW: Double          // SystemLoad / 1000 — actual system consumption
-    let batteryPowerW: Double         // BatteryPower / 1000 — positive=discharge, negative=charge
+    let powerSources: PowerReadingSources
+    let systemPowerW: Double          // Measured SystemLoad; power-balance fallback only if absent
+    let batteryPowerW: Double         // Normalized battery output: positive=discharge, negative=charge
     let acInputW: Double              // SystemPowerIn / 1000 — total DC from charger
     let acAdapterWattage: Int
     let batteryPercent: Int
@@ -125,8 +126,10 @@ struct PowerData {
         avgTimeToEmptyMinutes: Int?, avgTimeToFullMinutes: Int?,
         remainingCapacityMAH: Int?, fullChargeCapacityMAH: Int?,
         averageSystemPowerW: Double?, batteryManufactureDate: String?,
-        smoothedDischargePowerW: Double?, smoothedChargePowerW: Double?
+        smoothedDischargePowerW: Double?, smoothedChargePowerW: Double?,
+        powerSources: PowerReadingSources = .init()
     ) {
+        self.powerSources = powerSources
         self.systemPowerW = systemPowerW
         self.batteryPowerW = batteryPowerW
         self.acInputW = acInputW
@@ -215,45 +218,44 @@ struct PowerData {
         return connectionPhase == .onAC
     }
 
-    /// Effective AC output in watts.
-    /// Uses SystemPowerIn when available; estimates when SystemPowerIn is 0 or outdated.
+    /// Already resolved by the shared reported → I × V → balance policy.
+    /// Do not perform a second UI fallback: a reported zero remains zero.
     var effectiveACOutputW: Double {
         if !effectiveIsOnAC || isConnectingAC { return 0 }
-        if effectiveACInputW > 0 { return effectiveACInputW }
-        if isBatteryCharging {
-            return systemPowerW + batteryChargeRateW
-        }
-        return systemPowerW
+        return effectiveACInputW
+    }
+
+    var effectiveACOutputSource: PowerReadingSource {
+        if isConnectingAC { return .transition }
+        if !effectiveIsOnAC { return .disconnected }
+        return powerSources.adapter
+    }
+
+    var systemPowerText: String { powerSources.system.formattedPower(systemPowerW) }
+    var batteryDischargePowerText: String { powerSources.battery.formattedPower(max(0, batteryPowerW)) }
+    var batteryChargePowerText: String { powerSources.battery.formattedPower(batteryChargeRateW) }
+    var acOutputPowerText: String { effectiveACOutputSource.formattedPower(effectiveACOutputW) }
+    var headerPowerText: String {
+        if isConnectingAC || !effectiveIsOnAC || isSupplementalDischarge { return systemPowerText }
+        return acOutputPowerText
     }
 
     private var isBatteryDischarging: Bool {
         batteryPowerW > 0.3
     }
 
-    /// Whether the battery is actively charging.
-    /// AC input exceeding system load means surplus is charging the battery.
+    /// Signed battery output is authoritative; an AC/load mismatch alone does
+    /// not establish charging because the readings can update independently.
     var isBatteryCharging: Bool {
         if clearlyOnBattery || isConnectingAC { return false }
         if isBatteryDischarging { return false }
         if batteryPowerW < -0.3 { return true }
-
-        let hasSurplusAC = effectiveACInputW > systemPowerW + 0.5
-        if hasSurplusAC {
-            if fullyCharged { return false }
-            if let reason = notChargingReason, reason != 0 { return false }
-            return true
-        }
-
-        if isCharging { return true }
-        return false
+        return isCharging
     }
 
-    /// Battery charge rate in watts (positive value).
+    /// Measured battery charge rate (positive), not an inferred AC/load gap.
     var batteryChargeRateW: Double {
-        if !isBatteryCharging { return 0 }
-        if batteryPowerW < 0 { return abs(batteryPowerW) }
-        if effectiveACInputW > systemPowerW { return effectiveACInputW - systemPowerW }
-        return 0
+        isBatteryCharging ? max(0, -batteryPowerW) : 0
     }
 
     /// How much power the AC adapter provides
@@ -263,7 +265,7 @@ struct PowerData {
 
     /// How much power the battery provides to the system (discharge only)
     var batteryProvidesW: Double {
-        if !effectiveIsOnAC { return systemPowerW }
+        if !effectiveIsOnAC { return max(0, batteryPowerW) }
         if isSupplementalDischarge { return batterySupplementalW }
         return 0
     }
@@ -284,15 +286,13 @@ struct PowerData {
     /// Battery is supplementing AC (AC can't provide enough power alone)
     var isSupplementalDischarge: Bool {
         guard !isConnectingAC, effectiveIsOnAC, effectiveACInputW > 0, !isBatteryCharging else { return false }
-        if isBatteryDischarging { return true }
-        return effectiveACInputW + 0.5 < systemPowerW
+        return isBatteryDischarging
     }
 
     /// How much power the battery contributes during supplemental discharge.
     var batterySupplementalW: Double {
         guard isSupplementalDischarge else { return 0 }
-        if batteryPowerW > 0.3 { return batteryPowerW }
-        return max(0, systemPowerW - effectiveACInputW)
+        return max(0, batteryPowerW)
     }
 
     /// Primary wattage shown in the popover header.
@@ -329,6 +329,8 @@ struct PowerData {
 
     /// Compact menu bar label text, e.g. "19W" or "⚠ 33W".
     var menuBarPowerText: String {
+        let source = isBatteryCharging ? effectiveACOutputSource : powerSources.system
+        guard source.hasValue else { return "—" }
         let power = "\(menuBarPowerRoundedW)W"
         if menuBarPowerShowsWarning { return "⚠ \(power)" }
         return power
@@ -394,7 +396,7 @@ struct PowerData {
             return batterySupplementalW >= 0.2 ? batterySupplementalW : nil
         }
         if !effectiveIsOnAC {
-            return systemPowerW >= 0.2 ? systemPowerW : nil
+            return batteryProvidesW >= 0.2 ? batteryProvidesW : nil
         }
         return nil
     }
@@ -588,7 +590,8 @@ struct PowerData {
             avgTimeToEmptyMinutes: avgTimeToEmptyMinutes, avgTimeToFullMinutes: avgTimeToFullMinutes,
             remainingCapacityMAH: remainingCapacityMAH, fullChargeCapacityMAH: fullChargeCapacityMAH,
             averageSystemPowerW: averageSystemPowerW, batteryManufactureDate: batteryManufactureDate,
-            smoothedDischargePowerW: smoothedDischargePowerW, smoothedChargePowerW: smoothedChargePowerW
+            smoothedDischargePowerW: smoothedDischargePowerW, smoothedChargePowerW: smoothedChargePowerW,
+            powerSources: powerSources
         )
     }
 }

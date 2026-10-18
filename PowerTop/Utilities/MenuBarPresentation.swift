@@ -13,7 +13,8 @@ struct MenuBarPresentation: Equatable {
         }
     }
 
-    enum ChargingBadge: Equatable { case none, battery, afterPercentage, afterPower }
+    enum ChargingBadge: Equatable { case none, battery, afterPower }
+    let batteryPercent: Int?
     let chargingBadge: ChargingBadge
     let tint: Tint
     let symbol: String?
@@ -23,24 +24,19 @@ struct MenuBarPresentation: Equatable {
          showBattery: Bool, showPower: Bool, powerText: String, mode: EnergyMode? = nil) {
         // An unavailable reading must not imply a particular energy mode.
         tint = !available ? .system : (mode == .low ? .yellow : (mode == .high ? .white : .system))
+        batteryPercent = available && showBattery ? min(100, max(0, percent)) : nil
         chargingBadge = !available || !charging || !onAC ? .none
-            : (showBattery ? .afterPercentage : (showPower ? .afterPower : .battery))
+            : (showBattery || !showPower ? .battery : .afterPower)
         guard available else {
             symbol = "exclamationmark.triangle"
             title = ""
             return
         }
-        let percent = min(100, max(0, percent))
-        var parts: [String] = []
-        if showBattery { parts.append("\(percent)%") }
-        if showPower { parts.append(powerText) }
-        title = parts.joined(separator: " · ")
-        // Percentage-only mode avoids a redundant battery symbol.
-        symbol = (showBattery || showPower) ? nil : "battery.50"
+        title = showPower ? powerText : ""
+        symbol = showBattery || !showPower ? "battery.50" : nil
     }
     var titleBadgeIndex: Int? {
         switch chargingBadge {
-        case .afterPercentage: return title.firstIndex(of: "%").map { title.distance(from: title.startIndex, to: $0) + 1 }
         case .afterPower: return title.count
         default: return nil
         }
@@ -53,11 +49,9 @@ struct MenuBarPresentation: Equatable {
         if let index = titleBadgeIndex {
             let attachment = NSTextAttachment()
             attachment.image = Self.symbolImage("bolt.fill", tint: tint)
-            attachment.bounds = NSRect(x: 0, y: 0, width: 6, height: 10)
+            attachment.bounds = NSRect(x: 0, y: 1.5, width: 4, height: 7)
             let badge = NSMutableAttributedString(string: "", attributes: attributes)
             badge.append(NSAttributedString(attachment: attachment))
-            // The title already contains a separator when power follows. A
-            // trailing space here needlessly widens percentage-only status items.
             result.insert(badge, at: index)
         }
         return result
@@ -74,8 +68,44 @@ struct MenuBarPresentation: Equatable {
         return image
     }
 
+    /// A fixed-width outline keeps 0–100 stable in the menu bar. The number is
+    /// the percentage; omit the percent sign so three digits remain legible.
+    private func numberedBatteryImage(percent: Int) -> NSImage {
+        let charging = chargingBadge == .battery
+        let image = NSImage(size: NSSize(width: 30, height: 17), flipped: false) { canvas in
+            let color = tint.color ?? .black
+            color.setStroke()
+            let body = NSRect(x: 0.75, y: canvas.midY - 6.75, width: 25.5, height: 13.5)
+            let outline = NSBezierPath(roundedRect: body, xRadius: 2.5, yRadius: 2.5)
+            outline.lineWidth = 1.25
+            outline.stroke()
+            color.setFill()
+            NSBezierPath(roundedRect: NSRect(x: 27.5, y: body.midY - 3, width: 1.75, height: 6), xRadius: 0.8, yRadius: 0.8).fill()
+            let number = NSAttributedString(string: String(percent), attributes: [
+                .font: NSFont.monospacedDigitSystemFont(ofSize: 9.5, weight: .semibold),
+                .foregroundColor: color
+            ])
+            let size = number.size()
+            let boltWidth: CGFloat = 4
+            let gap: CGFloat = 0.75
+            let contentWidth = size.width + (charging ? gap + boltWidth : 0)
+            let numberX = body.midX - contentWidth / 2
+            number.draw(at: NSPoint(x: numberX, y: body.midY - size.height / 2))
+            if charging {
+                Self.symbolImage("bolt.fill", tint: tint)?.draw(in: NSRect(
+                    x: numberX + size.width + gap, y: body.midY - 3.5,
+                    width: boltWidth, height: 7))
+            }
+            return true
+        }
+        image.isTemplate = tint == .system
+        image.accessibilityDescription = "\(percent)%"
+        return image
+    }
+
     func symbolImage() -> NSImage? {
         guard let symbol else { return nil }
+        if let batteryPercent { return numberedBatteryImage(percent: batteryPercent) }
         guard chargingBadge == .battery else { return Self.symbolImage(symbol, tint: tint) }
         // Keep the battery outline; hang a small bolt from its lower-right corner.
         let image = NSImage(size: NSSize(width: 28, height: 16), flipped: false) { rect in

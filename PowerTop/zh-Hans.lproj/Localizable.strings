@@ -174,23 +174,53 @@
 "High Power Mode is not available for this power source." = "当前供电方式不支持高电量模式。";
 "macOS did not confirm the requested energy mode." = "macOS 未确认所选电源模式，请在系统设置中检查。";
 "Energy mode change cancelled." = "已取消切换电源模式。";
-"Changing modes requires administrator authorization." = "切换模式需要管理员授权。";
 
-// Refresh, quick switching and significant energy
-"Energy helper is missing. Reinstall PowerTop." = "缺少电源模式服务，请重新安装 PowerTop。";
-"Quick switching is unavailable. Enable it again to repair authorization." = "免密切换服务不可用，请重新启用以修复授权。";
-"Quick switching enabled" = "已启用免密切换";
-"Quick Switching" = "免密切换";
-"Authorize once to switch without a password. The helper can only change energy modes." = "首次授权后，切换模式无需重复输入密码。此服务只能更改电源模式。";
-"Enable or Repair Quick Switching" = "启用或修复免密切换";
-"Remove Quick Switching" = "移除免密切换服务";
+// Refresh and significant energy
+"Energy helper is missing. Reinstall PowerTop." = "缺少管理员授权组件，请重新安装 PowerTop。";
 "Refresh Now" = "立即刷新";
 "Using Significant Energy" = "使用大量能耗的 App";
 "Reading energy usage…" = "正在读取耗能应用…";
 "System energy usage is currently unavailable." = "暂时无法读取系统耗能应用列表。";
 "No Apps Using Significant Energy" = "没有使用大量能耗的 App";
 "Open Activity Monitor" = "打开活动监视器";
-"Read Every" = "读取间隔";
+"Refresh Interval" = "刷新间隔";
 "Seconds" = "秒";
 "Apply" = "应用";
-"Enter an interval from 1 to 300 seconds." = "请输入 1 至 300 秒之间的读取间隔。";
+"Enter an interval from 1 to 300 seconds." = "请输入 1 至 300 秒之间的刷新间隔。";
+
+// Explicit interval editing and confirmation
+"Cancel" = "取消";
+"Applied" = "已应用";
+"Edit refresh interval" = "修改刷新间隔";
+
+// Power flow diagram reading sources
+"Read: SystemLoad" = "读取：SystemLoad";
+"Read: SystemPowerIn" = "读取：SystemPowerIn";
+"Read: BatteryPower" = "读取：BatteryPower";
+"Calc: Instant I × V" = "计算：瞬时电流 × 电压";
+"Calc: Average I × V" = "计算：平均电流 × 电压";
+"Estimate: power balance" = "估算：功率平衡";
+"Estimate: battery output" = "估算：电池放电";
+"Source: settling" = "来源：过渡读数";
+"Source: unavailable" = "来源：暂无数据";
+
+// Unified power priority and manual refresh feedback
+"State: no AC input" = "状态：未连接电源";
+"Calc: Adapter I × V" = "计算：输入电流 × 电压";
+"Unable to refresh power readings." = "暂时无法刷新功率读数";
+
+// Unified administrator service and active sampling
+"Authorize once for manual and scheduled sampling and power-mode switching." = "一次授权，同时用于手动刷新、定时采样和电源模式切换。";
+"Administrator service is unavailable. Enable or repair it first." = "管理员权限不可用，请在“管理员权限授权”中完成授权或修复。";
+"Cannot confirm a new system sample: update time is unavailable." = "无法确认新的系统采样：系统更新时间不可用。";
+"No new system sample within 10 seconds. Existing readings are shown." = "10 秒内未获得新的系统采样，当前显示现有读数。";
+"System sampled at %@; power values unchanged." = "系统已于 %@ 重新采样，功率数值未变化";
+"System sampled at %@; power readings updated." = "系统已于 %@ 重新采样，功率读数已更新";
+"Each interval requests a new system sample. Sampling pauses during sleep; overlapping requests are combined." = "每个间隔请求一次新采样；休眠时暂停，重叠请求合并。";
+"Administrator authorization cancelled." = "已取消管理员授权。";
+
+// Shared administrator authorization in settings
+"Administrator Authorization" = "管理员权限授权";
+"Authorized" = "已授权";
+"Authorize or Repair Access" = "授权或修复权限";
+"Remove Authorization" = "移除授权";

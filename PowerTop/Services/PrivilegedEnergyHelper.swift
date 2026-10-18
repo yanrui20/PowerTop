@@ -1,7 +1,7 @@
 import Foundation
 import Security
 
-/// A narrow, optional root service. It accepts only two power sources and three mode values.
+/// One optional root service for two fixed operations: battery sampling and energy modes.
 actor PrivilegedEnergyHelper {
     static let shared = PrivilegedEnergyHelper()
     static let preferenceKey = "useEnergyHelper"
@@ -65,31 +65,50 @@ actor PrivilegedEnergyHelper {
     }
 
     func ping() async throws { try await request(mode: nil, source: nil) }
+    private func requireEnabledService() throws {
+        guard UserDefaults.standard.bool(forKey: Self.preferenceKey) else {
+            throw EnergyModeError.commandFailed(String(localized: "Administrator service is unavailable. Enable or repair it first."))
+        }
+    }
+
     func apply(_ mode: EnergyMode, source: EnergyPowerSource) async throws {
+        try requireEnabledService()
         try await request(mode: mode, source: source)
     }
 
-    private func request(mode: EnergyMode?, source: EnergyPowerSource?) async throws {
+    func requestBatterySample() async throws {
+        try requireEnabledService()
+        try await request(mode: nil, source: nil, sample: true)
+    }
+
+    private func request(mode: EnergyMode?, source: EnergyPowerSource?, sample: Bool = false) async throws {
         let expectedHash = try codeHash(at: helperURL())
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             let connection = NSXPCConnection(machServiceName: EnergyHelperConstants.service, options: .privileged)
             connection.setCodeSigningRequirement("cdhash H\"\(expectedHash)\"")
             connection.remoteObjectInterface = NSXPCInterface(with: EnergyHelperProtocol.self)
             let gate = EnergyHelperReply(continuation, connection: connection)
-            connection.invalidationHandler = { gate.finish(EnergyModeError.commandFailed(String(localized: "Quick switching is unavailable. Enable it again to repair authorization."))) }
+            connection.invalidationHandler = { gate.finish(EnergyModeError.commandFailed(String(localized: "Administrator service is unavailable. Enable or repair it first."))) }
             connection.interruptionHandler = connection.invalidationHandler
             connection.resume()
             let proxy = connection.remoteObjectProxyWithErrorHandler { gate.finish($0) } as? EnergyHelperProtocol
             guard let proxy else { gate.finish(EnergyModeError.unavailable); return }
-            if let mode, let source {
-                proxy.setMode(mode.rawValue, source: source.rawValue) { error in
-                    gate.finish(error.map { EnergyModeError.commandFailed($0) })
+            // Check protocol compatibility before invoking a new operation.
+            proxy.ping { version in
+                guard version == EnergyHelperConstants.version else {
+                    gate.finish(EnergyModeError.commandFailed(String(localized: "Administrator service is unavailable. Enable or repair it first.")))
+                    return
                 }
-            } else {
-                proxy.ping { version in gate.finish(version == EnergyHelperConstants.version ? nil : EnergyModeError.unavailable) }
+                if sample {
+                    proxy.requestBatterySample { error in gate.finish(error.map { EnergyModeError.commandFailed($0) }) }
+                } else if let mode, let source {
+                    proxy.setMode(mode.rawValue, source: source.rawValue) { error in
+                        gate.finish(error.map { EnergyModeError.commandFailed($0) })
+                    }
+                } else { gate.finish(nil) }
             }
             DispatchQueue.global().asyncAfter(deadline: .now() + 8) {
-                gate.finish(EnergyModeError.commandFailed(String(localized: "Quick switching is unavailable. Enable it again to repair authorization.")))
+                gate.finish(EnergyModeError.commandFailed(String(localized: "Administrator service is unavailable. Enable or repair it first.")))
             }
         }
     }
@@ -128,7 +147,7 @@ actor PrivilegedEnergyHelper {
         try process.run()
         let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
         process.waitUntilExit()
-        if output.trimmingCharacters(in: .whitespacesAndNewlines) == "POWERTOP_AUTH_CANCELLED" { throw EnergyModeError.cancelled }
+        if output.trimmingCharacters(in: .whitespacesAndNewlines) == "POWERTOP_AUTH_CANCELLED" { throw EnergyModeError.commandFailed(String(localized: "Administrator authorization cancelled.")) }
         guard process.terminationStatus == 0 else { throw EnergyModeError.commandFailed(output) }
     }
 }

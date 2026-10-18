@@ -9,6 +9,12 @@ import ServiceManagement
 @Observable
 final class PowerMonitor {
     private let defaults: UserDefaults
+    private let immediateSampler: ImmediatePowerSampler
+    private(set) var isRequestingSystemSample = false
+    private(set) var samplingError: String?
+    private var samplingTask: Task<TimeInterval, Error>?
+    private var isMonitoring = false
+    private var isSleeping = false
     let energyModes: EnergyModeController
     let significantEnergyApps = SignificantEnergyApps()
     var isPopoverVisible = false
@@ -64,7 +70,10 @@ final class PowerMonitor {
             let valid = Self.validatedInterval(updateInterval)
             if valid != updateInterval { updateInterval = valid }
             defaults.set(valid, forKey: "powerRefreshInterval")
-            if timer != nil { scheduleTimer() }
+            if timer != nil {
+                scheduleTimer()
+                energyModes.startMonitoring(interval: valid)
+            }
         }
     }
     static func validatedInterval(_ value: Double) -> Double {
@@ -84,8 +93,12 @@ final class PowerMonitor {
     private var lastUnplugEventAt: Date?
     private var timeEstimator = BatteryTimeEstimator()
 
-    init(defaults: UserDefaults = .standard, energyModes: EnergyModeController? = nil) {
+    init(defaults: UserDefaults = .standard, energyModes: EnergyModeController? = nil,
+         immediateSampler: ImmediatePowerSampler = .init(
+            request: { try await PrivilegedEnergyHelper.shared.requestBatterySample() },
+            readTimestamp: { SystemBatterySampling.updateTimestamp() })) {
         self.defaults = defaults
+        self.immediateSampler = immediateSampler
         self.energyModes = energyModes ?? EnergyModeController()
         let savedInterval = defaults.object(forKey: "powerRefreshInterval") as? Double ?? 2
         updateInterval = Self.validatedInterval(savedInterval)
@@ -94,12 +107,50 @@ final class PowerMonitor {
         showPowerInMenuBar = defaults.bool(forKey: Self.showPowerInMenuBarKey)
     }
 
+    /// Cache-only reads for source notifications and immediate UI updates.
     func refreshNow() {
         updateData()
     }
 
+    /// Manual and scheduled requests share an in-flight sample.
+    func refreshImmediately() async throws -> TimeInterval {
+        if let samplingTask { return try await samplingTask.value }
+        guard !isSleeping else { throw CancellationError() }
+        isRequestingSystemSample = true
+        let task = Task { @MainActor in
+            defer {
+                isRequestingSystemSample = false
+                samplingTask = nil
+            }
+            do {
+                let timestamp = try await immediateSampler.sample()
+                try Task.checkCancellation()
+                updateData()
+                guard isDataAvailable else { throw ImmediateRefreshError.unreadable }
+                samplingError = nil
+                return timestamp
+            } catch {
+                if !Task.isCancelled {
+                    updateData() // Preserve cached readings without claiming freshness.
+                    samplingError = error.localizedDescription
+                }
+                throw error
+            }
+        }
+        samplingTask = task
+        return try await task.value
+    }
+
+    private func scheduledRefresh() async {
+        guard isMonitoring, !isSleeping, samplingTask == nil else { return }
+        do { _ = try await refreshImmediately() }
+        catch { /* The shared sampling path publishes the error and cached data. */ }
+    }
+
     func start() {
-        guard timer == nil else { return }
+        guard !isMonitoring else { return }
+        isMonitoring = true
+        isSleeping = false
         let (raw, available) = readPowerData()
         isDataAvailable = available
         lastExternalConnected = raw.isOnAC
@@ -107,7 +158,7 @@ final class PowerMonitor {
         publishDisplayData(from: raw)
         scheduleTimer()
         setupPowerSourceNotification()
-        energyModes.startMonitoring()
+        energyModes.startMonitoring(interval: updateInterval)
 
         let center = NSWorkspace.shared.notificationCenter
         workspaceObservers.append(
@@ -135,6 +186,8 @@ final class PowerMonitor {
     }
 
     func stop() {
+        isMonitoring = false
+        samplingTask?.cancel()
         energyModes.stopMonitoring()
         timeEstimator.reset()
         timer?.invalidate()
@@ -155,6 +208,9 @@ final class PowerMonitor {
     }
 
     private func handleSystemSleep() {
+        isSleeping = true
+        samplingTask?.cancel()
+        cancelPendingRefreshes()
         energyModes.stopMonitoring()
         timeEstimator.reset()
         timer?.invalidate()
@@ -162,7 +218,9 @@ final class PowerMonitor {
     }
 
     private func handleSystemWake() {
-        energyModes.startMonitoring()
+        guard isMonitoring else { return }
+        isSleeping = false
+        energyModes.startMonitoring(interval: updateInterval)
         updateData()
         if timer == nil {
             scheduleTimer()
@@ -213,12 +271,19 @@ final class PowerMonitor {
         timer?.invalidate()
         let newTimer = Timer(timeInterval: updateInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                self?.updateData()
+                await self?.scheduledRefresh()
             }
         }
         RunLoop.main.add(newTimer, forMode: .common)
         timer = newTimer
     }
+
+    #if POWER_TOP_TESTING
+    func testScheduledRefresh() async { await scheduledRefresh() }
+    func testSleep() { handleSystemSleep() }
+    func testWake() { handleSystemWake() }
+    func testPowerSourceEvent() { handlePowerSourceEvent() }
+    #endif
 
     private func updateData() {
         let (raw, available) = readPowerData()
@@ -227,6 +292,7 @@ final class PowerMonitor {
     }
 
     private func handlePowerSourceEvent() {
+        guard isMonitoring, !isSleeping else { return }
         guard let connected = readExternalConnected() else {
             updateData()
             return
@@ -287,7 +353,7 @@ final class PowerMonitor {
         guard raw.isOnAC else { return false }
 
         if raw.isCharging && raw.batteryPowerW < -0.3 { return true }
-        if let amp = raw.batteryAmperageMA, amp < -50 { return true }
+        if let amp = raw.instantAmperageMA ?? raw.batteryAmperageMA, amp > 50 { return true }
         if let cc = raw.chargingCurrentMA, cc > 0, raw.batteryPowerW < -0.3 { return true }
 
         guard raw.acInputW > 0.3, raw.systemPowerW > 0 else { return false }
@@ -400,8 +466,8 @@ final class PowerMonitor {
             _ acInputW: Double,
             _ wallPowerW: Double?, _ adapterLossW: Double?,
             _ sysVoltage: Int?, _ sysCurrent: Int?,
-            _ dataSource: PowerDataSource
-        ) -> PowerData = { spw, bpw, aiw, wall, loss, sv, sc, ds in
+            _ dataSource: PowerDataSource, _ sources: PowerReadingSources
+        ) -> PowerData = { spw, bpw, aiw, wall, loss, sv, sc, ds, sources in
             PowerData(
                 systemPowerW: spw, batteryPowerW: bpw, acInputW: aiw,
                 acAdapterWattage: acAdapterWattage, batteryPercent: batteryPercent,
@@ -440,20 +506,12 @@ final class PowerMonitor {
                 avgTimeToEmptyMinutes: avgTimeToEmpty, avgTimeToFullMinutes: avgTimeToFull,
                 remainingCapacityMAH: remainingCapacity, fullChargeCapacityMAH: fullChargeCapacityBD,
                 averageSystemPowerW: avgSysPowerW, batteryManufactureDate: manufactureDateStr,
-                smoothedDischargePowerW: nil, smoothedChargePowerW: nil
+                smoothedDischargePowerW: nil, smoothedChargePowerW: nil,
+                powerSources: sources
             )
         }
 
-        // IOKit sign convention: Amperage > 0 = discharge, < 0 = charge.
-        let amperagePowerW: Double? = {
-            guard let a = amperage, let v = voltage, a != 0, v > 0 else { return nil }
-            return Double(a) * Double(v) / 1_000_000.0
-        }()
-
         if let telem = telemetry {
-            let systemLoad = extractInt(from: telem, key: "SystemLoad") ?? 0
-            let systemPowerIn = extractInt(from: telem, key: "SystemPowerIn") ?? 0
-            let batteryPower = extractInt(from: telem, key: "BatteryPower") ?? 0
             let wallEnergy = extractInt(from: telem, key: "WallEnergyEstimate")
             let adapterLoss = extractInt(from: telem, key: "AdapterEfficiencyLoss")
             let sysVoltage = extractInt(from: telem, key: "SystemVoltageIn")
@@ -464,199 +522,29 @@ final class PowerMonitor {
             let loadCount = extractInt(from: telem, key: "SystemLoadAccumulatorCount") ?? 0
             avgSysPowerW = loadCount > 0 ? Double(accumLoad) / Double(loadCount) / 1000.0 : nil
 
-            let reportedACInputW = Double(systemPowerIn) / 1000.0
-            // Ignore stale SystemPowerIn after unplug — ExternalConnected is authoritative.
-            let acInputW = isOnAC ? reportedACInputW : 0
-            let systemLoadW = Double(systemLoad) / 1000.0
-            // BatteryPower: positive = discharge, negative = charge
-            let batteryPowerFromTelemetry = Double(batteryPower) / 1000.0
-
-            let flow = resolveBatteryFlow(
-                isOnAC: isOnAC,
-                isChargingFlag: isCharging,
-                acInputW: acInputW,
-                systemLoadW: systemLoadW,
-                amperagePowerW: amperagePowerW,
-                batteryPowerFromTelemetry: batteryPowerFromTelemetry
-            )
-
-            let (systemPowerW, batteryPowerW) = computePowerMetrics(
-                flow: flow,
-                isOnAC: isOnAC,
-                acInputW: acInputW,
-                systemLoadW: systemLoadW,
-                batteryPowerFromTelemetry: batteryPowerFromTelemetry,
-                sysVoltage: sysVoltage,
-                sysCurrent: sysCurrent
+            let metrics = PowerMetrics.resolve(
+                isOnAC: isOnAC, isCharging: isCharging, voltageMV: voltage,
+                amperageMA: amperage, instantAmperageMA: instantAmperage,
+                telemetry: telem
             )
 
             return (
                 buildResult(
-                    systemPowerW, batteryPowerW, acInputW,
+                    metrics.systemPowerW, metrics.batteryPowerW, metrics.acInputW,
                     wallEnergy.map { Double($0) / 1000.0 },
                     adapterLoss.map { Double($0) / 1000.0 },
-                    sysVoltage, sysCurrent, .telemetry
+                    sysVoltage, sysCurrent, .telemetry, metrics.sources
                 ),
                 true
             )
         }
 
-        // Fallback: calculate from signed Amperage × Voltage
-        var systemPowerW: Double = 0
-        var batteryPowerW: Double = 0
-        if let signedPower = amperagePowerW {
-            batteryPowerW = signedPower
-            if !isOnAC {
-                systemPowerW = abs(signedPower)
-            } else if signedPower < 0 {
-                systemPowerW = 0
-            } else {
-                systemPowerW = signedPower
-            }
-        }
-
-        return (buildResult(systemPowerW, batteryPowerW, 0, nil, nil, nil, nil, .legacy), true)
-    }
-
-    private enum BatteryFlow {
-        case charging(rateW: Double)
-        case discharging(rateW: Double)
-        case idle
-    }
-
-    /// Resolves actual battery direction using amperage/telemetry signs, with IsCharging as fallback only.
-    private nonisolated func resolveBatteryFlow(
-        isOnAC: Bool,
-        isChargingFlag: Bool,
-        acInputW: Double,
-        systemLoadW: Double,
-        amperagePowerW: Double?,
-        batteryPowerFromTelemetry: Double
-    ) -> BatteryFlow {
-        let powerThreshold = 0.3
-
-        // Energy balance on AC: input > load → surplus charges battery.
-        if isOnAC, acInputW > systemLoadW + powerThreshold {
-            if let ampPower = amperagePowerW, ampPower < -powerThreshold {
-                return .charging(rateW: abs(ampPower))
-            }
-            if batteryPowerFromTelemetry < -powerThreshold {
-                return .charging(rateW: abs(batteryPowerFromTelemetry))
-            }
-            return .charging(rateW: acInputW - systemLoadW)
-        }
-
-        // Energy balance on AC: load > input → battery may supplement the system.
-        // Only classify discharge when amperage/BatteryPower agree; do not force
-        // discharge from the power gap alone (SystemLoad vs SystemPowerIn can be
-        // briefly out of phase and mislabel charging as supplement — issue #8).
-        if isOnAC, systemLoadW > acInputW + powerThreshold {
-            if let ampPower = amperagePowerW, ampPower > powerThreshold {
-                let rate = batteryPowerFromTelemetry > powerThreshold
-                    ? batteryPowerFromTelemetry
-                    : ampPower
-                return .discharging(rateW: rate)
-            }
-            if batteryPowerFromTelemetry > powerThreshold {
-                return .discharging(rateW: batteryPowerFromTelemetry)
-            }
-            // No explicit discharge evidence — fall through rather than inventing
-            // a supplement rate from (systemLoad - acInput).
-        }
-
-        if let ampPower = amperagePowerW {
-            if ampPower > powerThreshold {
-                return .discharging(rateW: ampPower)
-            }
-            if isOnAC, ampPower < -powerThreshold {
-                return .charging(rateW: abs(ampPower))
-            }
-        }
-
-        if batteryPowerFromTelemetry > powerThreshold {
-            return .discharging(rateW: batteryPowerFromTelemetry)
-        }
-        if batteryPowerFromTelemetry < -powerThreshold {
-            return .charging(rateW: abs(batteryPowerFromTelemetry))
-        }
-
-        if isOnAC && isChargingFlag {
-            if let ampPower = amperagePowerW, ampPower < 0 {
-                return .charging(rateW: abs(ampPower))
-            }
-        }
-
-        return .idle
-    }
-
-    private nonisolated func computePowerMetrics(
-        flow: BatteryFlow,
-        isOnAC: Bool,
-        acInputW: Double,
-        systemLoadW: Double,
-        batteryPowerFromTelemetry: Double,
-        sysVoltage: Int?,
-        sysCurrent: Int?
-    ) -> (systemPowerW: Double, batteryPowerW: Double) {
-        var systemPowerW: Double = 0
-        var batteryPowerW: Double = 0
-
-        switch flow {
-        case .charging(let rateW):
-            batteryPowerW = -rateW
-            if isOnAC, acInputW > rateW {
-                systemPowerW = acInputW - rateW
-            } else if systemLoadW > 0 {
-                systemPowerW = systemLoadW
-            } else if isOnAC {
-                systemPowerW = max(0, acInputW - rateW)
-            }
-
-        case .discharging(let rateW):
-            batteryPowerW = rateW
-            if isOnAC {
-                if systemLoadW > 0 {
-                    systemPowerW = systemLoadW
-                } else {
-                    systemPowerW = acInputW + rateW
-                }
-            } else if systemLoadW < 0 {
-                systemPowerW = abs(systemLoadW)
-            } else {
-                systemPowerW = rateW
-            }
-
-        case .idle:
-            batteryPowerW = batteryPowerFromTelemetry
-            if !isOnAC {
-                if systemLoadW > 0 {
-                    systemPowerW = systemLoadW
-                } else if systemLoadW < 0 {
-                    systemPowerW = abs(systemLoadW)
-                } else if batteryPowerFromTelemetry > 0 {
-                    systemPowerW = batteryPowerFromTelemetry
-                } else if batteryPowerFromTelemetry < 0 {
-                    systemPowerW = abs(batteryPowerFromTelemetry)
-                }
-            } else if systemLoadW > 0 {
-                systemPowerW = systemLoadW
-            } else {
-                systemPowerW = acInputW
-            }
-        }
-
-        if systemPowerW == 0, let sv = sysVoltage, let sc = sysCurrent, sv > 0, sc > 0 {
-            systemPowerW = Double(sv) * Double(sc) / 1_000_000.0
-        }
-
-        if !isOnAC, systemPowerW == 0, systemLoadW > 0 {
-            systemPowerW = systemLoadW
-        }
-
-        if !isOnAC, systemPowerW == 0, batteryPowerW > 0 {
-            systemPowerW = batteryPowerW
-        }
-
-        return (systemPowerW, batteryPowerW)
+        // No telemetry: use signed battery current; AC-only system load is unknown.
+        let metrics = PowerMetrics.resolve(
+            isOnAC: isOnAC, isCharging: isCharging, voltageMV: voltage,
+            amperageMA: amperage, instantAmperageMA: instantAmperage, telemetry: nil
+        )
+        return (buildResult(metrics.systemPowerW, metrics.batteryPowerW, 0,
+                            nil, nil, nil, nil, .legacy, metrics.sources), true)
     }
 }

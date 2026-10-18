@@ -15,7 +15,7 @@ struct HelperXPCTests {
     }
 
     static func probe(hash: String, expectRejected: Bool) async throws {
-        let delegate = EnergyHelper(clientHash: hash, ownerUID: getuid())
+        let delegate = EnergyHelper(clientHash: hash, ownerUID: getuid(), sampleRequest: { 1 })
         let listener = NSXPCListener.anonymous()
         listener.delegate = delegate
         listener.resume()
@@ -28,8 +28,11 @@ struct HelperXPCTests {
             connection.resume()
             let remote = connection.remoteObjectProxyWithErrorHandler { _ in gate.finish(false) } as! EnergyHelperProtocol
             remote.ping { version in
-                guard version == "1" else { gate.finish(false); return }
-                remote.setMode(99, source: "AC Power") { error in gate.finish(error != nil) }
+                guard version == EnergyHelperConstants.version else { gate.finish(false); return }
+                remote.setMode(99, source: "AC Power") { error in
+                    guard error != nil else { gate.finish(false); return }
+                    remote.requestBatterySample { sampleError in gate.finish(sampleError == nil) }
+                }
             }
             DispatchQueue.global().asyncAfter(deadline: .now() + 5) { gate.finish(false) }
         }
@@ -40,7 +43,12 @@ struct HelperXPCTests {
     static func main() async throws {
         try await probe(hash: ownHash(), expectRejected: false)
         try await probe(hash: String(repeating: "0", count: 40), expectRejected: true)
-        print("PASS: signed client accepted; invalid mode rejected; wrong client signature rejected")
+        let failed = EnergyHelper(clientHash: try ownHash(), ownerUID: getuid(), sampleRequest: { -1 })
+        let error: String? = await withCheckedContinuation { continuation in
+            failed.requestBatterySample { continuation.resume(returning: $0) }
+        }
+        precondition(error != nil)
+        print("PASS: one signed service handles mode validation and sampling; wrong signatures and sampling errors rejected; no hardware request made")
     }
 }
 

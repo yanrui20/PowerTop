@@ -6,9 +6,10 @@ struct PopoverView: View {
     let monitor: PowerMonitor
     var openDetails: (() -> Void)? = nil
 
-    @State private var refreshIntervalText = ""
-    @State private var refreshIntervalError = false
     @State private var isManuallyRefreshing = false
+    @State private var refreshFeedback: String?
+    @State private var refreshFailed = false
+    @State private var feedbackTask: Task<Void, Never>?
 
     private var data: PowerData { monitor.currentData }
 
@@ -17,11 +18,6 @@ struct PopoverView: View {
             contentSections
         }
         .frame(width: Self.preferredWidth, height: min(760, (NSScreen.main?.visibleFrame.height ?? 850) - 60))
-            .onAppear {
-                DispatchQueue.main.async {
-                    NSApp.keyWindow?.makeFirstResponder(nil)
-                }
-            }
     }
 
     // The actual stacked sections (no extra frame/fixed/background here).
@@ -89,7 +85,7 @@ struct PopoverView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(data.powerSourceDescription)
                     .font(.system(size: 13, weight: .semibold))
-                Text(String(format: "%.1f W", data.headerPowerW))
+                Text(data.headerPowerText)
                     .font(.system(size: 22, weight: .bold, design: .rounded))
                     .foregroundStyle(.primary)
             }
@@ -97,19 +93,46 @@ struct PopoverView: View {
             Spacer()
             Button {
                 Task {
+                    guard !isManuallyRefreshing else { return }
+                    feedbackTask?.cancel()
+                    refreshFeedback = nil
                     isManuallyRefreshing = true
-                    monitor.refreshNow()
-                    await monitor.energyModes.refresh()
-                    await monitor.significantEnergyApps.refresh()
+                    let before = (data.systemPowerW, data.batteryPowerW, data.acInputW)
+                    do {
+                        let sampleTime = try await monitor.refreshImmediately()
+                        let after = (data.systemPowerW, data.batteryPowerW, data.acInputW)
+                        let time = Date(timeIntervalSince1970: sampleTime).formatted(date: .omitted, time: .standard)
+                        await monitor.energyModes.refresh()
+                        await monitor.significantEnergyApps.refresh()
+                        refreshFailed = false
+                        let message = before == after
+                            ? String(localized: "System sampled at %@; power values unchanged.")
+                            : String(localized: "System sampled at %@; power readings updated.")
+                        refreshFeedback = String(format: message, time)
+                        feedbackTask = Task { @MainActor in
+                            do { try await Task.sleep(for: .seconds(4)) } catch { return }
+                            refreshFeedback = nil
+                        }
+                    } catch {
+                        refreshFailed = true
+                        refreshFeedback = error.localizedDescription
+                    }
                     isManuallyRefreshing = false
                 }
             } label: {
-                Image(systemName: "arrow.clockwise").font(.system(size: 14))
+                if isManuallyRefreshing {
+                    ProgressView().controlSize(.small).frame(width: 16, height: 16)
+                } else {
+                    Image(systemName: monitor.samplingError != nil ? "exclamationmark.circle" : (refreshFeedback == nil ? "arrow.clockwise" : (refreshFailed ? "exclamationmark.circle" : "checkmark.circle.fill")))
+                        .font(.system(size: 14))
+                        .foregroundStyle(monitor.samplingError != nil ? Color.orange : (refreshFeedback == nil ? Color.primary : (refreshFailed ? .orange : .green)))
+                }
             }
             .buttonStyle(.plain)
-            .disabled(isManuallyRefreshing)
-            .help(String(localized: "Refresh Now"))
+            .disabled(isManuallyRefreshing || monitor.energyModes.isBusy)
+            .help(monitor.samplingError ?? refreshFeedback ?? String(localized: "Refresh Now"))
             .accessibilityLabel(String(localized: "Refresh Now"))
+            .accessibilityValue(monitor.samplingError ?? refreshFeedback ?? "")
         }
         .padding(.horizontal, 14)
         .padding(.top, 12)
@@ -139,6 +162,7 @@ struct PopoverView: View {
             sourceBox(
                 title: String(localized: "AC Connecting"),
                 value: "—",
+                source: .transition,
                 color: .secondary,
                 icon: "powerplug.fill"
             )
@@ -147,7 +171,8 @@ struct PopoverView: View {
                 .foregroundStyle(.secondary)
             destBox(
                 title: String(localized: "System"),
-                value: String(format: "%.1f W", data.systemPowerW),
+                value: data.systemPowerText,
+                source: data.powerSources.system,
                 color: .primary,
                 icon: "desktopcomputer"
             )
@@ -158,7 +183,8 @@ struct PopoverView: View {
         VStack(spacing: 6) {
             sourceBox(
                 title: String(localized: "AC Powered"),
-                value: String(format: "%.1f W", data.effectiveACOutputW),
+                value: data.acOutputPowerText,
+                source: data.effectiveACOutputSource,
                 color: .green,
                 icon: "powerplug.fill"
             )
@@ -170,13 +196,15 @@ struct PopoverView: View {
                 HStack(spacing: 10) {
                     destBox(
                         title: String(localized: "Battery Charging"),
-                        value: String(format: "%.1f W", data.batteryChargeRateW),
+                        value: data.batteryChargePowerText,
+                        source: data.powerSources.battery,
                         color: .blue,
                         icon: "battery.100.bolt"
                     )
                     destBox(
                         title: String(localized: "System"),
-                        value: String(format: "%.1f W", data.systemPowerW),
+                        value: data.systemPowerText,
+                        source: data.powerSources.system,
                         color: .primary,
                         icon: "desktopcomputer"
                     )
@@ -184,7 +212,8 @@ struct PopoverView: View {
             } else {
                 destBox(
                     title: String(localized: "System"),
-                    value: String(format: "%.1f W", data.systemPowerW),
+                    value: data.systemPowerText,
+                    source: data.powerSources.system,
                     color: .primary,
                     icon: "desktopcomputer"
                 )
@@ -197,13 +226,15 @@ struct PopoverView: View {
             HStack(spacing: 10) {
                 sourceBox(
                     title: String(localized: "AC Powered"),
-                    value: String(format: "%.1f W", data.effectiveACOutputW),
+                    value: data.acOutputPowerText,
+                    source: data.effectiveACOutputSource,
                     color: .green,
                     icon: "powerplug.fill"
                 )
                 sourceBox(
                     title: String(localized: "Battery Discharge"),
-                    value: String(format: "%.1f W", data.batterySupplementalW),
+                    value: data.batteryDischargePowerText,
+                    source: data.powerSources.battery,
                     color: .orange,
                     icon: "battery.50"
                 )
@@ -215,7 +246,8 @@ struct PopoverView: View {
 
             destBox(
                 title: String(localized: "System"),
-                value: String(format: "%.1f W", data.systemPowerW),
+                value: data.systemPowerText,
+                source: data.powerSources.system,
                 color: .primary,
                 icon: "desktopcomputer"
             )
@@ -226,7 +258,8 @@ struct PopoverView: View {
         VStack(spacing: 6) {
             sourceBox(
                 title: String(localized: "Battery Discharge"),
-                value: String(format: "%.1f W", data.systemPowerW),
+                value: data.batteryDischargePowerText,
+                source: data.powerSources.battery,
                 color: .orange,
                 icon: "battery.50"
             )
@@ -235,14 +268,15 @@ struct PopoverView: View {
                 .foregroundStyle(.secondary)
             destBox(
                 title: String(localized: "System"),
-                value: String(format: "%.1f W", data.systemPowerW),
+                value: data.systemPowerText,
+                source: data.powerSources.system,
                 color: .primary,
                 icon: "desktopcomputer"
             )
         }
     }
 
-    private func sourceBox(title: String, value: String, color: Color, icon: String) -> some View {
+    private func sourceBox(title: String, value: String, source: PowerReadingSource, color: Color, icon: String) -> some View {
         VStack(spacing: 3) {
             HStack(spacing: 3) {
                 Image(systemName: icon).font(.system(size: 10))
@@ -252,12 +286,18 @@ struct PopoverView: View {
             Text(value)
                 .font(.system(size: 12, weight: .medium, design: .rounded))
                 .foregroundStyle(color)
+            Text(source.label)
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .help(source.detail)
         }
         .padding(.horizontal, 10).padding(.vertical, 5)
         .background(color.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
     }
 
-    private func destBox(title: String, value: String, color: Color, icon: String) -> some View {
+    private func destBox(title: String, value: String, source: PowerReadingSource, color: Color, icon: String) -> some View {
         VStack(spacing: 3) {
             HStack(spacing: 3) {
                 Image(systemName: icon).font(.system(size: 10))
@@ -267,6 +307,12 @@ struct PopoverView: View {
             Text(value)
                 .font(.system(size: 12, weight: .medium, design: .rounded))
                 .foregroundStyle(color)
+            Text(source.label)
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .help(source.detail)
         }
         .padding(.horizontal, 10).padding(.vertical, 5)
         .background(color.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
@@ -276,10 +322,10 @@ struct PopoverView: View {
 
     private var metricsSection: some View {
         VStack(spacing: 6) {
-            PowerRowView(icon: "desktopcomputer", iconColor: .primary, label: String(localized: "System Power"), value: String(format: "%.1f W", data.systemPowerW))
+            PowerRowView(icon: "desktopcomputer", iconColor: .primary, label: String(localized: "System Power"), value: data.systemPowerText)
 
             if data.effectiveIsOnAC && !data.isConnectingAC {
-                PowerRowView(icon: "powerplug.fill", iconColor: .green, label: String(localized: "AC Adapter Output"), value: String(format: "%.1f W", data.effectiveACOutputW))
+                PowerRowView(icon: "powerplug.fill", iconColor: .green, label: String(localized: "AC Adapter Output"), value: data.acOutputPowerText)
             }
 
             if data.isBatteryCharging {
@@ -287,14 +333,14 @@ struct PopoverView: View {
                     icon: "arrow.down.to.line",
                     iconColor: .blue,
                     label: String(localized: "Battery Charging"),
-                    value: String(format: "%.1f W", data.batteryChargeRateW)
+                    value: data.batteryChargePowerText
                 )
             } else if data.isSupplementalDischarge {
                 PowerRowView(
                     icon: "arrow.up.right.and.arrow.down.left",
                     iconColor: .orange,
                     label: String(localized: "Battery Supplement"),
-                    value: String(format: "%.1f W", data.batterySupplementalW)
+                    value: data.batteryDischargePowerText
                 )
             }
 
@@ -404,7 +450,7 @@ struct PopoverView: View {
                                                     in: RoundedRectangle(cornerRadius: 5))
                                 }
                                 .buttonStyle(.plain)
-                                .disabled(monitor.energyModes.isChanging || monitor.energyModes.isRefreshing
+                                .disabled(monitor.energyModes.isBusy
                                           || (mode == .high && !setting.supportsHighPower))
                                 .accessibilityAddTraits(setting.mode == mode ? .isSelected : [])
                                 .help(mode == .high && !setting.supportsHighPower
@@ -422,28 +468,7 @@ struct PopoverView: View {
                 Text(message).font(.system(size: 11)).foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if monitor.energyModes.quickSwitchEnabled {
-                Text(String(localized: "Quick switching enabled"))
-                    .font(.system(size: 10)).foregroundStyle(.secondary)
-            }
-            DisclosureGroup(String(localized: "Quick Switching")) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(String(localized: "Authorize once to switch without a password. The helper can only change energy modes."))
-                        .font(.system(size: 10)).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Button(String(localized: "Enable or Repair Quick Switching")) {
-                        Task { await monitor.energyModes.configureQuickSwitch(enabled: true) }
-                    }
-                    if monitor.energyModes.quickSwitchEnabled || monitor.energyModes.helperInstalled {
-                        Button(String(localized: "Remove Quick Switching")) {
-                            Task { await monitor.energyModes.configureQuickSwitch(enabled: false) }
-                        }
-                    }
-                }
-                .disabled(monitor.energyModes.isChanging || monitor.energyModes.isRefreshing)
-                .buttonStyle(.borderless)
-            }
-            .font(.system(size: 11))
+
         }
         .task(id: monitor.isPopoverVisible) {
             guard monitor.isPopoverVisible else { return }
@@ -515,22 +540,7 @@ struct PopoverView: View {
             .focusEffectDisabled()
 
             VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 4) {
-                    Text(String(localized: "Read Every"))
-                    TextField("2", text: $refreshIntervalText)
-                        .textFieldStyle(.roundedBorder).frame(width: 45)
-                        .onSubmit { applyRefreshInterval() }
-                    Text(String(localized: "Seconds"))
-                    Spacer()
-                    Button(String(localized: "Apply")) { applyRefreshInterval() }
-                        .buttonStyle(.borderless)
-                }
-                .font(.system(size: 11))
-                .onAppear { refreshIntervalText = monitor.updateInterval.formatted(.number.grouping(.never)) }
-                if refreshIntervalError {
-                    Text(String(localized: "Enter an interval from 1 to 300 seconds."))
-                        .font(.system(size: 10)).foregroundStyle(.red)
-                }
+                RefreshIntervalEditor(monitor: monitor)
                 Toggle(String(localized: "Launch at Login"), isOn: Binding(
                     get: { monitor.launchAtLogin },
                     set: { monitor.launchAtLogin = $0 }
@@ -558,6 +568,8 @@ struct PopoverView: View {
                 ))
                 .toggleStyle(.checkbox)
                 .font(.system(size: 11))
+
+                AdministratorAuthorizationView(controller: monitor.energyModes)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 10)
@@ -580,19 +592,6 @@ struct PopoverView: View {
                 .foregroundStyle(.secondary)
             }
         }
-    }
-
-    private func applyRefreshInterval() {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        guard let value = formatter.number(from: refreshIntervalText)?.doubleValue,
-              value.isFinite, PowerMonitor.refreshIntervalRange.contains(value) else {
-            refreshIntervalError = true
-            return
-        }
-        monitor.updateInterval = value
-        refreshIntervalError = false
-        monitor.refreshNow()
     }
 
     private func openDetailWindow() {

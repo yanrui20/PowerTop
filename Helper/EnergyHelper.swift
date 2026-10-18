@@ -3,9 +3,11 @@ import Foundation
 final class EnergyHelper: NSObject, NSXPCListenerDelegate, EnergyHelperProtocol {
     let clientRequirement: String
     let ownerUID: uid_t
+    private let sampleRequest: @Sendable () -> Int32
     private let queue = DispatchQueue(label: "PowerTop.energy-helper")
 
-    init(clientHash: String, ownerUID: uid_t) {
+    init(clientHash: String, ownerUID: uid_t, sampleRequest: @escaping @Sendable () -> Int32 = { SystemBatterySampling.request() }) {
+        self.sampleRequest = sampleRequest
         clientRequirement = "cdhash H\"\(clientHash)\""
         self.ownerUID = ownerUID
     }
@@ -21,6 +23,14 @@ final class EnergyHelper: NSObject, NSXPCListenerDelegate, EnergyHelperProtocol 
     }
 
     func ping(withReply reply: @escaping (String) -> Void) { reply(EnergyHelperConstants.version) }
+
+    func requestBatterySample(withReply reply: @escaping (String?) -> Void) {
+        queue.async {
+            let status = self.sampleRequest()
+            reply(SystemBatterySampling.requestWasAccepted(status) ? nil
+                  : String(format: "System sampling request failed (0x%08x).", UInt32(bitPattern: status)))
+        }
+    }
 
     func setMode(_ raw: Int, source: String, withReply reply: @escaping (String?) -> Void) {
         guard let mode = EnergyMode(rawValue: raw), let powerSource = EnergyPowerSource(rawValue: source) else {

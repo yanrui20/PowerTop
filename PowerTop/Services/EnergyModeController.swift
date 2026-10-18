@@ -16,26 +16,8 @@ actor SystemEnergyModeBackend: EnergyModeBackend {
     }
 
     func apply(_ mode: EnergyMode, source: EnergyPowerSource, setting: EnergyModeSetting) async throws {
-        let command = try setting.command(for: mode, source: source)
-        if UserDefaults.standard.bool(forKey: PrivilegedEnergyHelper.preferenceKey) {
-            try await PrivilegedEnergyHelper.shared.apply(mode, source: source)
-            return
-        }
-        // macOS owns the password prompt. No password is stored, and no helper is installed.
-        let script = """
-        try
-            do shell script "\(command)" with administrator privileges
-        on error errorMessage number errorNumber
-            if errorNumber is -128 then
-                return "POWERTOP_AUTH_CANCELLED"
-            end if
-            error errorMessage number errorNumber
-        end try
-        """
-        let output = try run("/usr/bin/osascript", arguments: ["-e", script])
-        if output.trimmingCharacters(in: .whitespacesAndNewlines) == "POWERTOP_AUTH_CANCELLED" {
-            throw EnergyModeError.cancelled
-        }
+        _ = try setting.command(for: mode, source: source)
+        try await PrivilegedEnergyHelper.shared.apply(mode, source: source)
     }
 
     private func run(_ executable: String, arguments: [String]) throws -> String {
@@ -64,25 +46,29 @@ actor SystemEnergyModeBackend: EnergyModeBackend {
 final class EnergyModeController {
     private(set) var settings: [EnergyPowerSource: EnergyModeSetting] = [:]
     private(set) var isChanging = false
-    private(set) var quickSwitchEnabled = UserDefaults.standard.bool(forKey: PrivilegedEnergyHelper.preferenceKey)
+    private(set) var isAuthorizing = false
+    private(set) var authorizationError: String?
+    var isBusy: Bool { isChanging || isAuthorizing }
+    private(set) var isAdministratorAuthorized = UserDefaults.standard.bool(forKey: PrivilegedEnergyHelper.preferenceKey)
     var helperInstalled: Bool { FileManager.default.fileExists(atPath: EnergyHelperConstants.executable) }
 
-    func configureQuickSwitch(enabled: Bool) async {
-        guard !isChanging, !isRefreshing else { return }
-        isChanging = true
-        errorMessage = nil
-        lastErrorWasReadFailure = false
-        defer { isChanging = false }
+    func configureAdministratorAuthorization(enabled: Bool) async {
+        guard !isBusy else { return }
+        operationRevision &+= 1
+        isAuthorizing = true
+        authorizationError = nil
+        defer { isAuthorizing = false }
         do {
             if enabled { try await PrivilegedEnergyHelper.shared.install() }
             else { try await PrivilegedEnergyHelper.shared.uninstall() }
-            quickSwitchEnabled = enabled
+            isAdministratorAuthorized = enabled
             UserDefaults.standard.set(enabled, forKey: PrivilegedEnergyHelper.preferenceKey)
-        } catch { errorMessage = error.localizedDescription }
+        } catch { authorizationError = error.localizedDescription }
     }
     private(set) var isRefreshing = false
     private(set) var errorMessage: String?
     private var lastErrorWasReadFailure = false
+    @ObservationIgnored private var operationRevision: UInt64 = 0
     private let backend: any EnergyModeBackend
 
     init(backend: any EnergyModeBackend = SystemEnergyModeBackend()) {
@@ -91,14 +77,18 @@ final class EnergyModeController {
 
     @ObservationIgnored private var monitoringTask: Task<Void, Never>?
 
-    /// Keep the menu bar color current even when the panel is closed. This cadence
-    /// is independent of the user's power-sensor interval (which can be 300 seconds).
-    func startMonitoring() {
-        guard monitoringTask == nil else { return }
+    @ObservationIgnored private var monitoringInterval: TimeInterval?
+
+    /// Keep mode state current at the same cadence as automatic power refreshes.
+    func startMonitoring(interval: TimeInterval) {
+        let interval = PowerMonitor.validatedInterval(interval)
+        if monitoringTask != nil, monitoringInterval == interval { return }
+        stopMonitoring()
+        monitoringInterval = interval
         monitoringTask = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.refresh()
-                do { try await Task.sleep(for: .seconds(5)) } catch { break }
+                do { try await Task.sleep(for: .seconds(interval)) } catch { break }
             }
         }
     }
@@ -111,14 +101,19 @@ final class EnergyModeController {
     deinit { monitoringTask?.cancel() }
 
     func refresh() async {
-        guard !isChanging, !isRefreshing else { return }
+        guard !isBusy, !isRefreshing else { return }
         isRefreshing = true
+        let revision = operationRevision
         defer { isRefreshing = false }
         do {
-            settings = try await backend.read()
+            let updated = try await backend.read()
+            // A read started before a user action cannot overwrite its result.
+            guard revision == operationRevision, !Task.isCancelled else { return }
+            if settings != updated { settings = updated }
             if lastErrorWasReadFailure { errorMessage = nil }
             lastErrorWasReadFailure = false
         } catch {
+            guard revision == operationRevision, !Task.isCancelled else { return }
             settings = [:]
             lastErrorWasReadFailure = true
             errorMessage = error.localizedDescription
@@ -126,7 +121,8 @@ final class EnergyModeController {
     }
 
     func select(_ mode: EnergyMode, source: EnergyPowerSource) async {
-        guard !isChanging, !isRefreshing, let setting = settings[source], setting.mode != mode else { return }
+        guard !isBusy, let setting = settings[source], setting.mode != mode else { return }
+        operationRevision &+= 1
         isChanging = true
         errorMessage = nil
         lastErrorWasReadFailure = false

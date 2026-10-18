@@ -26,11 +26,14 @@ mkdir -p "$BUILD_DIR"
 echo "Compiling..."
 SWIFT_FILES=(
     "$PROJECT_DIR/PowerTop/Shared/EnergyHelperProtocol.swift"
+    "$PROJECT_DIR/PowerTop/Shared/SystemBatterySampling.swift"
+    "$PROJECT_DIR/PowerTop/Services/ImmediatePowerSampler.swift"
     "$PROJECT_DIR/PowerTop/Services/PrivilegedEnergyHelper.swift"
     "$PROJECT_DIR/PowerTop/Services/SignificantEnergyApps.swift"
     "$PROJECT_DIR/PowerTop/Models/EnergyMode.swift"
     "$PROJECT_DIR/PowerTop/Services/EnergyModeController.swift"
     "$PROJECT_DIR/PowerTop/Utilities/MenuBarPresentation.swift"
+    "$PROJECT_DIR/PowerTop/Utilities/PowerMetrics.swift"
     "$PROJECT_DIR/PowerTop/Utilities/AppInfo.swift"
     "$PROJECT_DIR/PowerTop/Utilities/IOKitHelpers.swift"
     "$PROJECT_DIR/PowerTop/Utilities/BatteryTimeEstimator.swift"
@@ -42,6 +45,8 @@ SWIFT_FILES=(
     "$PROJECT_DIR/PowerTop/Views/PowerRowView.swift"
     "$PROJECT_DIR/PowerTop/Views/MenuBarLabelView.swift"
     "$PROJECT_DIR/PowerTop/Views/PopoverView.swift"
+    "$PROJECT_DIR/PowerTop/Views/RefreshIntervalEditor.swift"
+    "$PROJECT_DIR/PowerTop/Views/AdministratorAuthorizationView.swift"
     "$PROJECT_DIR/PowerTop/Views/DetailWindowView.swift"
     "$PROJECT_DIR/PowerTop/StatusItemController.swift"
     "$PROJECT_DIR/PowerTop/PowerTopApp.swift"
@@ -100,11 +105,12 @@ HELPER_DIR="$APP_BUNDLE/Contents/Library/HelperTools"
 mkdir -p "$HELPER_DIR"
 "$SWIFTC" -target arm64-apple-macosx14.0 -sdk "$SDK" -O \
     "$PROJECT_DIR/PowerTop/Shared/EnergyHelperProtocol.swift" \
+    "$PROJECT_DIR/PowerTop/Shared/SystemBatterySampling.swift" \
     "$PROJECT_DIR/PowerTop/Models/EnergyMode.swift" \
     "$PROJECT_DIR/Helper/EnergyHelper.swift" \
     "$PROJECT_DIR/Helper/main.swift" -o "$HELPER_DIR/PowerTopEnergyHelper"
 # Ad-hoc signatures allow exact-build XPC pinning on a local installation.
-# Rebuilding changes the app hash and requires enabling quick switching again.
+# Rebuilding changes the app hash and requires repairing administrator authorization.
 codesign --force --sign - --options runtime "$HELPER_DIR/PowerTopEnergyHelper"
 codesign --force --sign - --options runtime "$APP_BUNDLE"
 codesign --verify --strict "$APP_BUNDLE"

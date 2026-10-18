@@ -9,6 +9,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func startIfNeeded() {
         guard !didStart else { return }
         didStart = true
+        if CommandLine.arguments.contains("--configure-admin-service") || CommandLine.arguments.contains("--verify-active-refresh") {
+            Task { @MainActor in
+                if CommandLine.arguments.contains("--configure-admin-service") {
+                    await monitor.energyModes.configureAdministratorAuthorization(enabled: true)
+                    if let error = monitor.energyModes.authorizationError {
+                        fputs("Administrator service: \(error)\n", stderr); exit(1)
+                    }
+                }
+                do {
+                    try await PrivilegedEnergyHelper.shared.ping()
+                    let before = SystemBatterySampling.updateTimestamp()
+                    let after = try await monitor.refreshImmediately()
+                    print("PASS: shared administrator service; sample timestamp \(String(describing: before)) -> \(after); system=\(monitor.currentData.systemPowerW)W")
+                    exit(0)
+                } catch { fputs("Active refresh: \(error.localizedDescription)\n", stderr); exit(1) }
+            }
+            return
+        }
         monitor.start()
         statusItemController = StatusItemController(monitor: monitor)
         if CommandLine.arguments.contains("--smoke-launch") {

@@ -174,23 +174,53 @@
 "High Power Mode is not available for this power source." = "High Power Mode is not available for this power source.";
 "macOS did not confirm the requested energy mode." = "macOS did not confirm the requested energy mode.";
 "Energy mode change cancelled." = "Energy mode change cancelled.";
-"Changing modes requires administrator authorization." = "Changing modes requires administrator authorization.";
 
-// Refresh, quick switching and significant energy
+// Refresh and significant energy
 "Energy helper is missing. Reinstall PowerTop." = "Energy helper is missing. Reinstall PowerTop.";
-"Quick switching is unavailable. Enable it again to repair authorization." = "Quick switching is unavailable. Enable it again to repair authorization.";
-"Quick switching enabled" = "Quick switching enabled";
-"Quick Switching" = "Quick Switching";
-"Authorize once to switch without a password. The helper can only change energy modes." = "Authorize once to switch without a password. The helper can only change energy modes.";
-"Enable or Repair Quick Switching" = "Enable or Repair Quick Switching";
-"Remove Quick Switching" = "Remove Quick Switching";
 "Refresh Now" = "Refresh Now";
 "Using Significant Energy" = "Using Significant Energy";
 "Reading energy usage…" = "Reading energy usage…";
 "System energy usage is currently unavailable." = "System energy usage is currently unavailable.";
 "No Apps Using Significant Energy" = "No Apps Using Significant Energy";
 "Open Activity Monitor" = "Open Activity Monitor";
-"Read Every" = "Read Every";
+"Refresh Interval" = "Refresh Interval";
 "Seconds" = "Seconds";
 "Apply" = "Apply";
 "Enter an interval from 1 to 300 seconds." = "Enter an interval from 1 to 300 seconds.";
+
+// Explicit interval editing and confirmation
+"Cancel" = "Cancel";
+"Applied" = "Applied";
+"Edit refresh interval" = "Edit refresh interval";
+
+// Power flow diagram reading sources
+"Read: SystemLoad" = "Read: SystemLoad";
+"Read: SystemPowerIn" = "Read: SystemPowerIn";
+"Read: BatteryPower" = "Read: BatteryPower";
+"Calc: Instant I × V" = "Calc: Instant I × V";
+"Calc: Average I × V" = "Calc: Average I × V";
+"Estimate: power balance" = "Estimate: power balance";
+"Estimate: battery output" = "Estimate: battery output";
+"Source: settling" = "Source: settling";
+"Source: unavailable" = "Source: unavailable";
+
+// Unified power priority and manual refresh feedback
+"State: no AC input" = "State: no AC input";
+"Calc: Adapter I × V" = "Calc: Adapter I × V";
+"Unable to refresh power readings." = "Unable to refresh power readings.";
+
+// Unified administrator service and active sampling
+"Authorize once for manual and scheduled sampling and power-mode switching." = "Authorize once for manual and scheduled sampling and power-mode switching.";
+"Administrator service is unavailable. Enable or repair it first." = "Administrator service is unavailable. Enable or repair it first.";
+"Cannot confirm a new system sample: update time is unavailable." = "Cannot confirm a new system sample: update time is unavailable.";
+"No new system sample within 10 seconds. Existing readings are shown." = "No new system sample within 10 seconds. Existing readings are shown.";
+"System sampled at %@; power values unchanged." = "System sampled at %@; power values unchanged.";
+"System sampled at %@; power readings updated." = "System sampled at %@; power readings updated.";
+"Each interval requests a new system sample. Sampling pauses during sleep; overlapping requests are combined." = "Each interval requests a new system sample. Sampling pauses during sleep; overlapping requests are combined.";
+"Administrator authorization cancelled." = "Administrator authorization cancelled.";
+
+// Shared administrator authorization in settings
+"Administrator Authorization" = "Administrator Authorization";
+"Authorized" = "Authorized";
+"Authorize or Repair Access" = "Authorize or Repair Access";
+"Remove Authorization" = "Remove Authorization";

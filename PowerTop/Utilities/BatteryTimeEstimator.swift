@@ -72,7 +72,7 @@ struct BatteryTimeEstimator {
         if data.isSupplementalDischarge {
             return data.batterySupplementalW
         }
-        return data.systemPowerW
+        return data.batteryProvidesW
     }
 
     private func ema(previous: Double?, sample: Double) -> Double {

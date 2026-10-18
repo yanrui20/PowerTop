@@ -41,36 +41,36 @@ struct DetailWindowView: View {
             DetailRow(label: String(localized: "Power Source"), value: data.powerSourceDescription)
             DetailRow(
                 label: String(localized: "System Power"),
-                value: String(format: "%.1f W", data.systemPowerW),
+                value: data.systemPowerText,
                 highlight: true
             )
 
             if data.effectiveIsOnAC && !data.isConnectingAC {
                 DetailRow(
                     label: String(localized: "AC Adapter Output"),
-                    value: String(format: "%.1f W", data.effectiveACOutputW)
+                    value: data.acOutputPowerText
                 )
             }
 
             if data.isBatteryCharging {
                 DetailRow(
                     label: String(localized: "Battery Charging"),
-                    value: String(format: "%.1f W", data.batteryChargeRateW)
+                    value: data.batteryChargePowerText
                 )
             } else if data.isSupplementalDischarge {
                 DetailRow(
                     label: String(localized: "Battery Supplement"),
-                    value: String(format: "%.1f W", data.batterySupplementalW)
+                    value: data.batteryDischargePowerText
                 )
             } else if !data.effectiveIsOnAC, data.batteryPowerW > 0.3 {
                 DetailRow(
                     label: String(localized: "Battery Discharging Power"),
-                    value: String(format: "%.1f W", data.batteryPowerW)
+                    value: data.batteryDischargePowerText
                 )
             } else if data.effectiveIsOnAC, data.batteryPowerW < -0.3 {
                 DetailRow(
                     label: String(localized: "Battery Charging Power"),
-                    value: String(format: "%.1f W", abs(data.batteryPowerW))
+                    value: data.powerSources.battery.formattedPower(abs(data.batteryPowerW))
                 )
             }
 
@@ -251,8 +251,8 @@ struct DetailWindowView: View {
                 }
                 if let amp = data.batteryAmperageMA {
                     let sign = amp > 0
-                        ? String(localized: "Discharging")
-                        : (amp < 0 ? String(localized: "Charging") : String(localized: "Idle"))
+                        ? String(localized: "Charging")
+                        : (amp < 0 ? String(localized: "Discharging") : String(localized: "Idle"))
                     DetailRow(
                         label: String(localized: "Battery Current"),
                         value: String(format: "%d mA (%@)", abs(amp), sign)

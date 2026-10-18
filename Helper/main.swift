@@ -6,7 +6,7 @@ if arguments.count == 2 && arguments[1] == "--self-test" {
     let helper = EnergyHelper(clientHash: String(repeating: "a", count: 40), ownerUID: getuid())
     helper.setMode(9, source: "AC Power") { precondition($0 != nil) }
     helper.setMode(0, source: "-a; touch /tmp/invalid") { precondition($0 != nil) }
-    helper.ping { precondition($0 == "1") }
+    helper.ping { precondition($0 == EnergyHelperConstants.version) }
     print("PASS: helper rejects invalid modes and sources; no command executed")
     exit(0)
 }
