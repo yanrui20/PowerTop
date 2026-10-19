@@ -525,7 +525,7 @@ final class PowerMonitor {
             let metrics = PowerMetrics.resolve(
                 isOnAC: isOnAC, isCharging: isCharging, voltageMV: voltage,
                 amperageMA: amperage, instantAmperageMA: instantAmperage,
-                telemetry: telem
+                telemetry: telem, batteryData: batteryData
             )
 
             return (
@@ -539,10 +539,10 @@ final class PowerMonitor {
             )
         }
 
-        // No telemetry: use signed battery current; AC-only system load is unknown.
+        // Without telemetry, use direct BatteryData watts or signed current; otherwise leave load unavailable.
         let metrics = PowerMetrics.resolve(
             isOnAC: isOnAC, isCharging: isCharging, voltageMV: voltage,
-            amperageMA: amperage, instantAmperageMA: instantAmperage, telemetry: nil
+            amperageMA: amperage, instantAmperageMA: instantAmperage, telemetry: nil, batteryData: batteryData
         )
         return (buildResult(metrics.systemPowerW, metrics.batteryPowerW, 0,
                             nil, nil, nil, nil, .legacy, metrics.sources), true)

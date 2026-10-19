@@ -224,3 +224,5 @@
 "Authorized" = "Authorized";
 "Authorize or Repair Access" = "Authorize or Repair Access";
 "Remove Authorization" = "Remove Authorization";
+
+"Read: SystemPower" = "Read: SystemPower";

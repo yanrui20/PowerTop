@@ -131,6 +131,55 @@ struct PowerFlowTests {
         precondition(conflict.powerSources.battery == .transition && !conflict.isSupplementalDischarge)
         let conflictingEstimate = resolve(20_000, 72_000, nil, charging: true)
         precondition(conflictingEstimate.sources.battery == .transition)
+        // Regression: a real charging snapshot had a contradictory telemetry
+        // BatteryPower, and SystemLoad equalled input minus that rejected value.
+        func capturedCharge(_ alternate: Any?) -> PowerMetrics {
+            PowerMetrics.resolve(isOnAC: true, isCharging: true, voltageMV: 12_700,
+                amperageMA: 3_809, instantAmperageMA: 3_809,
+                telemetry: ["SystemPowerIn": 75_338, "SystemLoad": 92_500, "BatteryPower": -17_162],
+                batteryData: alternate.map { ["SystemPower": $0] })
+        }
+        let corrected = capturedCharge(29.67804718017578)
+        near(corrected.systemPowerW, 29.67804718017578)
+        near(corrected.batteryPowerW, -48.3743)
+        near(corrected.acInputW, 75.338)
+        precondition(corrected.sources.system == .batteryDataSystemPower)
+        precondition(corrected.sources.battery == .instantCurrent)
+        precondition(data(corrected, charging: true).isBatteryCharging)
+        precondition(!data(corrected, charging: true).isSupplementalDischarge)
+        // Prefer BatteryData.SystemPower even when SystemLoad is also valid.
+        let preferred = PowerMetrics.resolve(isOnAC: true, isCharging: true, voltageMV: 12_000,
+            amperageMA: 1_000, instantAmperageMA: 1_000,
+            telemetry: ["SystemPowerIn": 30_000, "SystemLoad": 18_000, "BatteryPower": 12_000],
+            batteryData: ["SystemPower": 17.5])
+        near(preferred.systemPowerW, 17.5)
+        precondition(preferred.sources.system == .batteryDataSystemPower)
+        // Missing, unsupported, non-finite, negative, or inconsistent primary
+        // readings must fall through to a valid SystemLoad, not straight to balance.
+        for invalidPrimary in [nil, 17_500, Double.nan, Double.infinity, -1.0, 40.5] as [Any?] {
+            let fallback = PowerMetrics.resolve(isOnAC: true, isCharging: true, voltageMV: 12_000,
+                amperageMA: 1_000, instantAmperageMA: 1_000,
+                telemetry: ["SystemPowerIn": 30_000, "SystemLoad": 18_000, "BatteryPower": 12_000],
+                batteryData: invalidPrimary.map { ["SystemPower": $0] })
+            near(fallback.systemPowerW, 18)
+            precondition(fallback.sources.system == .systemLoad)
+        }
+        let primaryZero = PowerMetrics.resolve(isOnAC: true, isCharging: false, voltageMV: nil,
+            amperageMA: nil, instantAmperageMA: nil,
+            telemetry: ["SystemLoad": 12_000], batteryData: ["SystemPower": NSNumber(value: 0.0)])
+        near(primaryZero.systemPowerW, 0)
+        precondition(primaryZero.sources.system == .batteryDataSystemPower, "A valid primary zero must win")
+        for unavailable in [nil, 29_678, Double.nan, Double.infinity, -1.0, 92.5] as [Any?] {
+            let estimate = capturedCharge(unavailable)
+            near(estimate.systemPowerW, 26.9637)
+            precondition(estimate.sources.system == .powerBalance)
+        }
+        let noPlausibleLoad = resolve(20_000, 80_000, -8_000, instant: 4_000, charging: true)
+        precondition(!noPlausibleLoad.sources.system.hasValue, "Negative system estimates must not be fabricated")
+        let idleFallback = PowerMetrics.resolve(isOnAC: true, isCharging: false, voltageMV: nil,
+            amperageMA: nil, instantAmperageMA: nil, telemetry: ["SystemPowerIn": 0],
+            batteryData: ["SystemPower": NSNumber(value: 0.0)])
+        near(idleFallback.systemPowerW, 0)
         let connecting = data(resolve(60_000, 80_000, -20_000), phase: .connectingAC)
         precondition(!connecting.isSupplementalDischarge && !connecting.isBatteryCharging)
 
@@ -145,13 +194,14 @@ struct PowerFlowTests {
             precondition(monitor.uiRefreshToken == count + 1)
             if monitor.isDataAvailable { precondition(monitor.currentData.timestamp >= start) }
         }
-        print("PASS: reported > component I × V > independent balance; valid zeros, missing inputs, no circular estimates, transitions, real battery output, and refresh re-reads")
+        print("PASS: SystemPower > SystemLoad > balance, primary zero and invalid-primary fallback, contradictory charging regression, direct system watts, invalid alternative encodings, reported > component I × V > independent balance; valid zeros, missing inputs, no circular estimates, transitions, real battery output, and refresh re-reads")
         if CommandLine.arguments.contains("--read-system"), let raw = getIOServiceProperties(className: "AppleSmartBattery") {
             let onAC = extractBool(from: raw, key: "ExternalConnected") ?? false
             let flag = extractBool(from: raw, key: "IsCharging") ?? false
             let metrics = PowerMetrics.resolve(isOnAC: onAC, isCharging: flag,
                 voltageMV: extractInt(from: raw, key: "Voltage"), amperageMA: extractInt(from: raw, key: "Amperage"),
-                instantAmperageMA: extractInt(from: raw, key: "InstantAmperage"), telemetry: extractDict(from: raw, key: "PowerTelemetryData"))
+                instantAmperageMA: extractInt(from: raw, key: "InstantAmperage"), telemetry: extractDict(from: raw, key: "PowerTelemetryData"),
+                batteryData: extractDict(from: raw, key: "BatteryData"))
             let display = data(metrics, onAC: onAC, charging: flag, phase: onAC ? .onAC : .onBattery)
             if let telemetry = extractDict(from: raw, key: "PowerTelemetryData") {
                 let reported = extractInt(from: telemetry, key: "BatteryPower").map { Double($0) / 1000 }

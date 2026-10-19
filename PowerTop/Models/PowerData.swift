@@ -23,7 +23,7 @@ struct BatteryParallelCellCurrent: Equatable {
 struct PowerData {
     // Core power metrics
     let powerSources: PowerReadingSources
-    let systemPowerW: Double          // Measured SystemLoad; power-balance fallback only if absent
+    let systemPowerW: Double          // Validated SystemPower, then SystemLoad, then independent power balance
     let batteryPowerW: Double         // Normalized battery output: positive=discharge, negative=charge
     let acInputW: Double              // SystemPowerIn / 1000 — total DC from charger
     let acAdapterWattage: Int

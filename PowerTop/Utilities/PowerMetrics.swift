@@ -1,13 +1,14 @@
 import Foundation
 
 enum PowerReadingSource: Equatable {
-    case systemLoad, systemPowerIn, batteryPower
+    case systemLoad, batteryDataSystemPower, systemPowerIn, batteryPower
     case instantCurrent, averageCurrent, adapterCurrent, powerBalance, batteryEstimate
     case disconnected, transition, unavailable
 
     var label: String {
         switch self {
         case .systemLoad: return String(localized: "Read: SystemLoad")
+        case .batteryDataSystemPower: return String(localized: "Read: SystemPower")
         case .systemPowerIn: return String(localized: "Read: SystemPowerIn")
         case .batteryPower: return String(localized: "Read: BatteryPower")
         case .instantCurrent: return String(localized: "Calc: Instant I × V")
@@ -30,6 +31,7 @@ enum PowerReadingSource: Equatable {
     var detail: String {
         switch self {
         case .systemLoad: return "PowerTelemetryData.SystemLoad ÷ 1000"
+        case .batteryDataSystemPower: return "BatteryData.SystemPower (W)"
         case .systemPowerIn: return "PowerTelemetryData.SystemPowerIn ÷ 1000"
         case .batteryPower: return "PowerTelemetryData.BatteryPower ÷ 1000"
         case .instantCurrent: return "InstantAmperage × Voltage ÷ 1000000"
@@ -57,7 +59,7 @@ struct PowerMetrics: Equatable {
 
     static func resolve(isOnAC: Bool, isCharging: Bool, voltageMV: Int?,
                         amperageMA: Int?, instantAmperageMA: Int?,
-                        telemetry: [String: Any]?) -> PowerMetrics {
+                        telemetry: [String: Any]?, batteryData: [String: Any]? = nil) -> PowerMetrics {
         func batteryOutput(currentMA: Int?) -> Double? {
             guard let currentMA, let voltageMV, voltageMV > 0 else { return nil }
             return -Double(currentMA) * Double(voltageMV) / 1_000_000
@@ -102,10 +104,37 @@ struct PowerMetrics: Equatable {
             sources.adapter = .adapterCurrent
         }
 
+        // Some snapshots report charging current while telemetry BatteryPower
+        // still indicates discharge, and SystemLoad includes that same discharge.
+        // Rejecting BatteryPower alone would mix incompatible power-flow states.
+        // A charging battery cannot supplement an input smaller than system load.
+        func plausibleSystemLoad(_ value: Double) -> Bool {
+            guard value.isFinite, value >= 0 else { return false }
+            if isOnAC, let input, let battery, battery < -0.3, value > input + 0.5 {
+                return false
+            }
+            return true
+        }
+        // Prefer Apple Silicon's floating-point SystemPower in watts. Integer
+        // representations on other hardware do not establish units, so skip them.
+        let primaryNumber = batteryData?["SystemPower"] as? NSNumber
+        let primaryWatts = primaryNumber.flatMap { number -> Double? in
+            ["f", "d"].contains(String(cString: number.objCType)) ? number.doubleValue : nil
+        }
+        let systemCandidates: [(Double?, PowerReadingSource)] = [
+            (primaryWatts, .batteryDataSystemPower),
+            (watts("SystemLoad"), .systemLoad)
+        ]
         var system: Double?
-        if let reported = watts("SystemLoad"), reported >= 0 {
-            system = reported
-            sources.system = .systemLoad
+        for (candidate, source) in systemCandidates {
+            guard let value = candidate, value.isFinite, value >= 0 else { continue }
+            guard plausibleSystemLoad(value) else {
+                sources.system = .transition
+                continue
+            }
+            system = value
+            sources.system = source
+            break
         }
 
         // Derive at most the missing component from two independently known

@@ -224,3 +224,5 @@
 "Authorized" = "已授权";
 "Authorize or Repair Access" = "授权或修复权限";
 "Remove Authorization" = "移除授权";
+
+"Read: SystemPower" = "读取：SystemPower";
