@@ -68,11 +68,30 @@ final class PowerRequests: @unchecked Sendable {
             let widths = controller.menuBarLayoutWidths!
             precondition(widths.occupied <= widths.button + 1 && widths.button <= 210, "Unexpected native width: \(widths); image=\(presentation.compactStatusImage()!.size)")
             precondition(controller.testImageIsTemplate == false)
+            precondition(abs(widths.button - (presentation.compactStatusImage()!.size.width + 4)) <= 1,
+                         "Appearance callbacks must preserve the current presentation")
             if let dir = ProcessInfo.processInfo.environment["POWERTOP_TEST_PREVIEW_DIR"] {
                 try controller.saveButtonForTest(to: URL(fileURLWithPath: dir).appendingPathComponent("resources-mode-\(mode.rawValue).png"))
             }
             print("PASS resources menu mode=\(mode.rawValue): button=\(widths.button), occupied=\(widths.occupied)")
         }
+        // External menu-bar replicas must not turn appearance callbacks into redraw loops.
+        controller.testSetAppearance(.aqua)
+        try await Task.sleep(for: .milliseconds(150))
+        let beforeAppearanceStorm = controller.testRenderCount
+        for _ in 0..<1000 { controller.testAppearanceNotification() }
+        try await Task.sleep(for: .milliseconds(150))
+        precondition(controller.testRenderCount == beforeAppearanceStorm, "Identical appearance notifications must not redraw")
+        controller.testSetAppearance(.darkAqua)
+        try await Task.sleep(for: .milliseconds(150))
+        let darkRenderCount = controller.testRenderCount
+        precondition(darkRenderCount == beforeAppearanceStorm + 1, "Actual theme changes must redraw exactly once")
+        for _ in 0..<1000 { controller.testAppearanceNotification() }
+        try await Task.sleep(for: .milliseconds(150))
+        precondition(controller.testRenderCount == darkRenderCount)
+        let bitmap = MenuBarPresentation(available: true, percent: 66, charging: true, onAC: true,
+            showBattery: true, showPower: true, powerText: "25W", resources: examples).compactStatusImage()!
+        precondition(bitmap.representations.count == 2 && bitmap.representations.allSatisfy { $0 is NSBitmapImageRep })
         controller.invalidate()
 
         monitor.updateInterval = 300

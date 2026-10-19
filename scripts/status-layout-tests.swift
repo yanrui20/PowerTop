@@ -54,14 +54,14 @@ struct StatusLayoutTests {
             monitor.showPowerInMenuBar = false
             monitor.showBatteryInMenuBar = true
             try await Task.sleep(for: .milliseconds(150))
-            precondition(controller.testImageIsTemplate == (color == nil))
+            precondition(controller.testImageIsTemplate == false)
             if let dir = ProcessInfo.processInfo.environment["POWERTOP_TEST_PREVIEW_DIR"] {
                 try controller.saveButtonForTest(to: URL(fileURLWithPath: dir).appendingPathComponent("mode-\(mode.rawValue)-icon.png"))
             }
             monitor.showPowerInMenuBar = true
         }
         modes.stopMonitoring()
-        print("PASS: only the battery changes mode color; other menu text stays normal")
+        print("PASS: energy columns change mode color; resource columns stay normal")
         controller.showForLayoutTest()
         try await Task.sleep(for: .milliseconds(300))
         for (battery, power) in [(false, false), (true, false), (true, true), (false, true), (false, false), (true, false)] {

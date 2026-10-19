@@ -9,6 +9,7 @@ struct PowerRowView: View {
     let label: String
     let value: String
     var wrapsValue: Bool = false
+    var valueHelp: String? = nil
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
@@ -42,8 +43,10 @@ struct PowerRowView: View {
                     .multilineTextAlignment(.trailing)
                     .fixedSize(horizontal: true, vertical: false)
                     .layoutPriority(1)
+                    .help(valueHelp ?? "")
             }
         }
         .font(.system(size: 12))
+        .help(valueHelp ?? "")
     }
 }

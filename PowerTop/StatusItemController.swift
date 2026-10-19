@@ -14,6 +14,17 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSWindowDelegate 
     private var appearanceObservation: NSKeyValueObservation?
     /// Skip redundant status-item layout; rewriting length/title every 2s shifts the item.
     private var renderedPresentation: MenuBarPresentation?
+    private var renderedNormalColor: NSColor?
+    private var appearanceUpdatePending = false
+    private var renderedAccessibilityLabel: String?
+    #if POWER_TOP_TESTING
+    private(set) var testRenderCount = 0
+    func testAppearanceNotification() { scheduleAppearanceUpdate() }
+    func testSetAppearance(_ name: NSAppearance.Name?) {
+        statusItem.button?.appearance = name.flatMap(NSAppearance.init(named:))
+        scheduleAppearanceUpdate()
+    }
+    #endif
     /// Accessory apps often don't resign key, so `.transient` misses outside clicks on macOS 15/26.
     private var localClickMonitor: Any?
     private var globalClickMonitor: Any?
@@ -104,9 +115,12 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSWindowDelegate 
         button.target = self
         button.action = #selector(statusItemClicked)
         appearanceObservation = button.observe(\.effectiveAppearance, options: [.new]) { [weak self] _, _ in
-            Task { @MainActor in
-                guard let self, !self.invalidated else { return }
-                self.render(self.monitor.menuBarPresentation)
+            // Multi-display status-item snapshots can temporarily change appearance
+            // while drawing. Defer to the stable appearance and deduplicate the result.
+            if Thread.isMainThread {
+                MainActor.assumeIsolated { self?.scheduleAppearanceUpdate() }
+            } else {
+                Task { @MainActor in self?.scheduleAppearanceUpdate() }
             }
         }
         button.postsFrameChangedNotifications = true
@@ -164,19 +178,43 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSWindowDelegate 
         }
     }
 
+    private func scheduleAppearanceUpdate() {
+        guard !invalidated, !appearanceUpdatePending else { return }
+        appearanceUpdatePending = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.appearanceUpdatePending = false
+            guard !self.invalidated else { return }
+            self.render(self.renderedPresentation ?? self.monitor.menuBarPresentation)
+        }
+    }
+
     private func updateStatusItem() {
         guard !invalidated else { return }
         let presentation = monitor.menuBarPresentation
         guard let button = statusItem.button else { return }
-        button.toolTip = nil
-        button.setAccessibilityLabel(monitor.menuBarToolTip)
-        guard presentation != renderedPresentation else { return }
-        renderedPresentation = presentation
+        if button.toolTip != nil { button.toolTip = nil }
+        let accessibilityLabel = monitor.menuBarToolTip
+        if accessibilityLabel != renderedAccessibilityLabel {
+            renderedAccessibilityLabel = accessibilityLabel
+            button.setAccessibilityLabel(accessibilityLabel)
+        }
         render(presentation)
     }
 
     private func render(_ presentation: MenuBarPresentation) {
         guard let button = statusItem.button else { return }
+        var normalColor = NSColor.labelColor
+        button.effectiveAppearance.performAsCurrentDrawingAppearance {
+            normalColor = NSColor.labelColor.usingColorSpace(.deviceRGB) ?? .labelColor
+        }
+        guard presentation != renderedPresentation || renderedNormalColor?.isEqual(normalColor) != true else { return }
+        // Set the cache before AppKit mutations, which can produce appearance notifications.
+        renderedPresentation = presentation
+        renderedNormalColor = normalColor
+        #if POWER_TOP_TESTING
+        testRenderCount += 1
+        #endif
         // Explicit colors are applied to text and non-template symbols; template
         // rendering otherwise recolors everything to the menu bar's default tint.
         if !presentation.needsCompositeImage {
@@ -187,10 +225,6 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSWindowDelegate 
         } else {
             button.title = ""
             button.attributedTitle = NSAttributedString(string: "")
-            var normalColor = NSColor.labelColor
-            button.effectiveAppearance.performAsCurrentDrawingAppearance {
-                normalColor = NSColor.labelColor.usingColorSpace(.deviceRGB) ?? .labelColor
-            }
             button.image = presentation.compactStatusImage(normalColor: normalColor)
             button.imagePosition = .imageOnly
         }

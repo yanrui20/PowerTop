@@ -5,10 +5,13 @@ struct MenuBarResourceItem: Equatable {
     let top: String
     let bottom: String
     var isNetwork = false
+    var showsChargingBadge = false
 
     var kind: MenuBarItemKind {
         if isNetwork { return .network }
         switch bottom {
+        case "BAT": return .battery
+        case "PWR": return .power
         case "CPU": return .cpu
         case "GPU": return .gpu
         case "MEM": return .memory
@@ -37,7 +40,7 @@ struct MenuBarResourceItem: Equatable {
     var topFont: NSFont { .monospacedDigitSystemFont(ofSize: 11, weight: .medium) }
     var bottomFont: NSFont { .monospacedDigitSystemFont(ofSize: isNetwork ? 11 : 7, weight: .medium) }
     private func text(_ value: String, font: NSFont, color: NSColor, numeric: Bool) -> NSAttributedString {
-        let result = NSMutableAttributedString(string: value, attributes: [.font: font, .foregroundColor: color])
+        let result = NSMutableAttributedString(string: value, attributes: [.font: font, .foregroundColor: color, .kern: -0.3])
         if numeric {
             // Keep values prominent; units and direction arrows take less horizontal space.
             for (offset, character) in value.utf16.enumerated() where !(48...57).contains(character) && character != 46 && character != 8212 {
@@ -49,22 +52,34 @@ struct MenuBarResourceItem: Equatable {
     var width: CGFloat {
         let topWidth = text(top, font: topFont, color: .labelColor, numeric: true).size().width
         let bottomWidth = text(bottom, font: bottomFont, color: .labelColor, numeric: isNetwork).size().width
-        let baseline = text(isNetwork ? "↑999M/s" : "100%", font: topFont, color: .labelColor, numeric: true).size().width
-        return ceil(max(baseline, topWidth, bottomWidth))
+        let reference = isNetwork ? "↑999M/s" : (kind == .power ? "99W" : "100%")
+        let baseline = text(reference, font: topFont, color: .labelColor, numeric: true).size().width
+        let badgeWidth: CGFloat = showsChargingBadge ? 4.5 : 0
+        return ceil(max(baseline + badgeWidth, topWidth + badgeWidth, bottomWidth))
     }
 
     func draw(at x: CGFloat, color: NSColor) {
         for (value, font, y, numeric) in [(top, topFont, CGFloat(9), true), (bottom, bottomFont, CGFloat(isNetwork ? -1 : 0), isNetwork)] {
             let attributed = text(value, font: font, color: color, numeric: numeric)
-            attributed.draw(at: NSPoint(x: x + (width - attributed.size().width) / 2, y: y))
+            let hasBadge = showsChargingBadge && y == 9
+            let contentWidth = attributed.size().width + (hasBadge ? 4.5 : 0)
+            let origin = x + (width - contentWidth) / 2
+            attributed.draw(at: NSPoint(x: origin, y: y))
+            if hasBadge, let bolt = NSImage(systemSymbolName: "bolt.fill", accessibilityDescription: nil)?
+                .withSymbolConfiguration(.init(paletteColors: [color])) {
+                bolt.draw(in: NSRect(x: origin + attributed.size().width + 0.5, y: 13, width: 4, height: 7))
+            }
         }
     }
 }
 
 extension MenuBarPresentation {
-    var needsCompositeImage: Bool {
-        !resources.isEmpty || (symbol != nil && !title.isEmpty &&
-            itemOrder.firstIndex(of: .power)! < itemOrder.firstIndex(of: .battery)!)
+    var needsCompositeImage: Bool { batteryPercent != nil || !title.isEmpty || !resources.isEmpty }
+    var batteryColumn: MenuBarResourceItem? {
+        batteryPercent.map { .init(top: "\($0)%", bottom: "BAT", showsChargingBadge: chargingBadge == .battery) }
+    }
+    var powerColumn: MenuBarResourceItem? {
+        title.isEmpty ? nil : .init(top: title, bottom: "PWR", showsChargingBadge: chargingBadge == .afterPower)
     }
     var visibleItemOrder: [MenuBarItemKind] {
         itemOrder.filter { kind in
@@ -75,17 +90,17 @@ extension MenuBarPresentation {
             }
         }
     }
-    /// Keep normal menu text independent of the battery's explicit mode color.
+    /// Apply mode color only to battery/power columns; resource columns use normal menu text.
     /// The controller resolves normalColor from the status button's appearance.
     func compactStatusImage(normalColor: NSColor = .labelColor) -> NSImage? {
         guard needsCompositeImage else { return symbolImage() }
-        let battery = symbolImage()
-        let power = attributedTitle(font: .monospacedDigitSystemFont(ofSize: 12, weight: .medium), normalColor: normalColor)
+        let battery = batteryColumn == nil ? symbolImage() : nil
+        let energyColor = tint.color ?? normalColor
         let order = visibleItemOrder
         func width(_ kind: MenuBarItemKind) -> CGFloat {
             switch kind {
-            case .battery: return battery?.size.width ?? 0
-            case .power: return ceil(power.size().width)
+            case .battery: return batteryColumn?.width ?? battery?.size.width ?? 0
+            case .power: return powerColumn?.width ?? 0
             default: return resources.first { $0.kind == kind }?.width ?? 0
             }
         }
@@ -95,7 +110,9 @@ extension MenuBarPresentation {
             for kind in order {
                 switch kind {
                 case .battery:
-                    if let battery {
+                    if let column = batteryColumn {
+                        column.draw(at: x, color: energyColor)
+                    } else if let battery {
                         let frame = NSRect(x: x, y: rect.midY - battery.size.height / 2, width: battery.size.width, height: battery.size.height)
                         battery.draw(in: frame)
                         if battery.isTemplate {
@@ -104,7 +121,7 @@ extension MenuBarPresentation {
                         }
                     }
                 case .power:
-                    power.draw(at: NSPoint(x: x, y: rect.midY - power.size().height / 2))
+                    powerColumn?.draw(at: x, color: energyColor)
                 default: resources.first { $0.kind == kind }?.draw(at: x, color: normalColor)
                 }
                 x += width(kind) + 1
@@ -113,6 +130,31 @@ extension MenuBarPresentation {
         }
         // Template rendering would tint every column, including normal text.
         image.isTemplate = false
-        return image
+        return Self.rasterizedStatusImage(image)
+    }
+}
+
+extension MenuBarPresentation {
+    /// Materialize both display scales once per value/color change. A live
+    /// NSCustomImageRep otherwise reruns text layout for every replicated menu bar.
+    static func rasterizedStatusImage(_ source: NSImage) -> NSImage {
+        let result = NSImage(size: source.size)
+        for scale in [1.0, 2.0] {
+            guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil,
+                pixelsWide: Int(ceil(source.size.width * scale)), pixelsHigh: Int(ceil(source.size.height * scale)),
+                bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
+                  let context = NSGraphicsContext(bitmapImageRep: bitmap) else { continue }
+            bitmap.size = source.size
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = context
+            context.cgContext.scaleBy(x: scale, y: scale)
+            source.draw(in: NSRect(origin: .zero, size: source.size), from: .zero, operation: .copy, fraction: 1)
+            NSGraphicsContext.restoreGraphicsState()
+            result.addRepresentation(bitmap)
+        }
+        guard !result.representations.isEmpty else { return source }
+        result.isTemplate = source.isTemplate
+        return result
     }
 }

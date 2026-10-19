@@ -146,12 +146,13 @@ actor StartupFixture: StartupItemsBackend {
         let normal = NSBitmapImageRep(data: presentation(.automatic).compactStatusImage(normalColor: .white)!.tiffRepresentation!)!
         let low = NSBitmapImageRep(data: presentation(.low).compactStatusImage(normalColor: .white)!.tiffRepresentation!)!
         precondition(normal.pixelsWide == low.pixelsWide)
-        let batteryEnd = Int(Double(normal.pixelsWide) * 30 / Double(normal.size.width))
+        let energyWidth = presentation(.automatic).batteryColumn!.width + presentation(.automatic).powerColumn!.width + 2
+        let batteryEnd = Int(Double(normal.pixelsWide) * Double(energyWidth) / Double(normal.size.width))
         var changedBattery = false
         for y in 0..<normal.pixelsHigh {
             for x in 0..<normal.pixelsWide {
                 let equal = normal.colorAt(x: x, y: y) == low.colorAt(x: x, y: y)
-                if x >= batteryEnd { precondition(equal, "Only battery pixels may turn yellow") }
+                if x >= batteryEnd { precondition(equal, "Only battery and power pixels may turn yellow") }
                 else if !equal { changedBattery = true }
             }
         }
