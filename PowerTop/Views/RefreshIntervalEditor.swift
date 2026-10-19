@@ -3,7 +3,19 @@ import SwiftUI
 /// The field exists only during explicit editing, so opening the panel cannot
 /// put a hidden text editor into the responder chain.
 struct RefreshIntervalEditor: View {
+    enum Scope { case battery, resources }
     let monitor: PowerMonitor
+    var scope: Scope = .battery
+    private var label: String {
+        scope == .battery ? String(localized: "Battery Refresh Interval") : String(localized: "Resource Refresh Interval")
+    }
+    private var identifier: String { scope == .battery ? "refresh-interval" : "resource-refresh-interval" }
+    private var interval: TimeInterval { scope == .battery ? monitor.updateInterval : monitor.resourceRefreshInterval }
+    private var intervalHelp: String {
+        scope == .battery
+            ? String(localized: "Each interval requests a new system sample. Sampling pauses during sleep; overlapping requests are combined.")
+            : String(localized: "System resources refresh independently of battery sampling.")
+    }
     @State private var isEditing = false
     @State private var draft = ""
     @State private var hasError = false
@@ -11,20 +23,20 @@ struct RefreshIntervalEditor: View {
     @FocusState private var fieldFocused: Bool
 
     private var currentInterval: String {
-        monitor.updateInterval.formatted(.number.grouping(.never))
+        interval.formatted(.number.grouping(.never))
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 4) {
-                Text(String(localized: "Refresh Interval"))
+                Text(label)
                 if isEditing {
                     TextField("2", text: $draft)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 45)
                         .focused($fieldFocused)
-                        .accessibilityIdentifier("refresh-interval-input")
-                        .accessibilityLabel(String(localized: "Refresh Interval"))
+                        .accessibilityIdentifier("\(identifier)-input")
+                        .accessibilityLabel(label)
                         .onAppear { DispatchQueue.main.async { fieldFocused = true } }
                         .onSubmit { apply() }
                         .onExitCommand { cancel() }
@@ -37,8 +49,8 @@ struct RefreshIntervalEditor: View {
                     }
                     .buttonStyle(.bordered)
                     .focusable(false)
-                    .accessibilityIdentifier("refresh-interval-edit")
-                    .accessibilityLabel(String(localized: "Edit refresh interval"))
+                    .accessibilityIdentifier("\(identifier)-edit")
+                    .accessibilityLabel(label)
                 }
                 Text(String(localized: "Seconds"))
                 Spacer(minLength: 2)
@@ -63,7 +75,7 @@ struct RefreshIntervalEditor: View {
                             .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 5))
                     }
                     .buttonStyle(.plain)
-                    .accessibilityIdentifier("refresh-interval-apply")
+                    .accessibilityIdentifier("\(identifier)-apply")
                 }
                 .font(.system(size: 11))
                 .controlSize(.small)
@@ -75,7 +87,7 @@ struct RefreshIntervalEditor: View {
         }
         .font(.system(size: 10))
         .frame(maxWidth: .infinity, alignment: .leading)
-        .help(String(localized: "Each interval requests a new system sample. Sampling pauses during sleep; overlapping requests are combined."))
+        .help(intervalHelp)
         .onChange(of: monitor.isPopoverVisible) { _, visible in
             if !visible { cancel(); didApply = false }
         }
@@ -107,12 +119,14 @@ struct RefreshIntervalEditor: View {
             fieldFocused = true
             return
         }
-        monitor.updateInterval = value
+        if scope == .battery { monitor.updateInterval = value }
+        else { monitor.resourceRefreshInterval = value }
         fieldFocused = false
         isEditing = false
         hasError = false
         draft = currentInterval
         didApply = true
-        monitor.refreshNow()
+        if scope == .battery { monitor.refreshNow() }
+        else { Task { await monitor.systemMetrics.refresh() } }
     }
 }

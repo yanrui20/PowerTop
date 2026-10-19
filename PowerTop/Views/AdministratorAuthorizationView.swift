@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Shared authorization for sampling and energy modes, shown with app settings.
+/// Shared authorization for sampling, energy modes and startup management, shown with app settings.
 struct AdministratorAuthorizationView: View {
     let controller: EnergyModeController
 
@@ -8,7 +8,7 @@ struct AdministratorAuthorizationView: View {
         VStack(alignment: .leading, spacing: 6) {
             DisclosureGroup {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(String(localized: "Authorize once for manual and scheduled sampling and power-mode switching."))
+                    Text(String(localized: "Authorize once for sampling, power-mode switching and startup-item management."))
                         .font(.system(size: 10)).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                     Button(String(localized: "Authorize or Repair Access")) {

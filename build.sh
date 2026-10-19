@@ -25,6 +25,7 @@ mkdir -p "$BUILD_DIR"
 # Compile Swift sources
 echo "Compiling..."
 SWIFT_FILES=(
+    "$PROJECT_DIR/PowerTop/Shared/StartupServicePolicy.swift"
     "$PROJECT_DIR/PowerTop/Shared/EnergyHelperProtocol.swift"
     "$PROJECT_DIR/PowerTop/Shared/SystemBatterySampling.swift"
     "$PROJECT_DIR/PowerTop/Services/ImmediatePowerSampler.swift"
@@ -33,6 +34,7 @@ SWIFT_FILES=(
     "$PROJECT_DIR/PowerTop/Models/EnergyMode.swift"
     "$PROJECT_DIR/PowerTop/Services/EnergyModeController.swift"
     "$PROJECT_DIR/PowerTop/Utilities/MenuBarPresentation.swift"
+    "$PROJECT_DIR/PowerTop/Utilities/MenuBarResources.swift"
     "$PROJECT_DIR/PowerTop/Utilities/PowerMetrics.swift"
     "$PROJECT_DIR/PowerTop/Utilities/AppInfo.swift"
     "$PROJECT_DIR/PowerTop/Utilities/IOKitHelpers.swift"
@@ -41,6 +43,19 @@ SWIFT_FILES=(
     "$PROJECT_DIR/PowerTop/Utilities/TemperatureUnits.swift"
     "$PROJECT_DIR/PowerTop/Models/PowerConnectionPhase.swift"
     "$PROJECT_DIR/PowerTop/Models/PowerData.swift"
+    "$PROJECT_DIR/PowerTop/Models/SystemMetrics.swift"
+    "$PROJECT_DIR/PowerTop/Models/HardwareMetrics.swift"
+    "$PROJECT_DIR/PowerTop/Models/MenuBarItemKind.swift"
+    "$PROJECT_DIR/PowerTop/Models/StartupItem.swift"
+    "$PROJECT_DIR/PowerTop/Services/LegacyLoginItems.swift"
+    "$PROJECT_DIR/PowerTop/Services/StartupItemsBackend.swift"
+    "$PROJECT_DIR/PowerTop/Services/StartupItemsController.swift"
+    "$PROJECT_DIR/PowerTop/Views/MenuBarLayoutView.swift"
+    "$PROJECT_DIR/PowerTop/Views/StartupItemsView.swift"
+    "$PROJECT_DIR/PowerTop/Services/HardwareSensorsReader.swift"
+    "$PROJECT_DIR/PowerTop/Services/SystemMetricsReader.swift"
+    "$PROJECT_DIR/PowerTop/Services/SystemMetricsMonitor.swift"
+    "$PROJECT_DIR/PowerTop/Views/SystemMetricsView.swift"
     "$PROJECT_DIR/PowerTop/Services/PowerMonitor.swift"
     "$PROJECT_DIR/PowerTop/Views/PowerRowView.swift"
     "$PROJECT_DIR/PowerTop/Views/MenuBarLabelView.swift"
@@ -61,6 +76,8 @@ SWIFT_FILES=(
     -framework AppKit \
     -framework Foundation \
     -framework ServiceManagement \
+    -framework SystemConfiguration \
+    -framework CoreServices \
     -framework Security \
     -parse-as-library \
     -O \
@@ -106,6 +123,7 @@ mkdir -p "$HELPER_DIR"
 "$SWIFTC" -target arm64-apple-macosx14.0 -sdk "$SDK" -O \
     "$PROJECT_DIR/PowerTop/Shared/EnergyHelperProtocol.swift" \
     "$PROJECT_DIR/PowerTop/Shared/SystemBatterySampling.swift" \
+    "$PROJECT_DIR/PowerTop/Shared/StartupServicePolicy.swift" \
     "$PROJECT_DIR/PowerTop/Models/EnergyMode.swift" \
     "$PROJECT_DIR/Helper/EnergyHelper.swift" \
     "$PROJECT_DIR/Helper/main.swift" -o "$HELPER_DIR/PowerTopEnergyHelper"

@@ -5,6 +5,7 @@ final class EnergyHelper: NSObject, NSXPCListenerDelegate, EnergyHelperProtocol 
     let ownerUID: uid_t
     private let sampleRequest: @Sendable () -> Int32
     private let queue = DispatchQueue(label: "PowerTop.energy-helper")
+    private let startupQueue = DispatchQueue(label: "PowerTop.startup-helper")
 
     init(clientHash: String, ownerUID: uid_t, sampleRequest: @escaping @Sendable () -> Int32 = { SystemBatterySampling.request() }) {
         self.sampleRequest = sampleRequest
@@ -23,6 +24,32 @@ final class EnergyHelper: NSObject, NSXPCListenerDelegate, EnergyHelperProtocol 
     }
 
     func ping(withReply reply: @escaping (String) -> Void) { reply(EnergyHelperConstants.version) }
+
+    func readStartupState(withReply reply: @escaping (String?, String?, String?, String?) -> Void) {
+        startupQueue.async {
+            do {
+                let state = try self.run(["print-disabled", "system"], executable: "/bin/launchctl")
+                let records = try self.run(["dumpbtm"], executable: "/usr/bin/sfltool")
+                let loaded = try self.run(["list"], executable: "/bin/launchctl")
+                reply(state, StartupServicePolicy.backgroundRecords(records, ownerUID: self.ownerUID), loaded, nil)
+            } catch { reply(nil, nil, nil, error.localizedDescription) }
+        }
+    }
+
+    func setStartupDaemonEnabled(_ enabled: Bool, sourcePath: String, label: String, withReply reply: @escaping (String?) -> Void) {
+        startupQueue.async {
+            guard StartupServicePolicy.validDaemon(path: sourcePath, label: label) else {
+                reply("This startup service cannot be changed. Refresh the list and check its source file.")
+                return
+            }
+            do {
+                try StartupServiceAction.apply(enabled: enabled, domain: "system", label: label, path: sourcePath) {
+                    try self.run($0, executable: "/bin/launchctl")
+                }
+                reply(nil)
+            } catch { reply(error.localizedDescription) }
+        }
+    }
 
     func requestBatterySample(withReply reply: @escaping (String?) -> Void) {
         queue.async {
@@ -49,17 +76,20 @@ final class EnergyHelper: NSObject, NSXPCListenerDelegate, EnergyHelperProtocol 
         }
     }
 
-    private func run(_ arguments: [String]) throws -> String {
+    private func run(_ arguments: [String], executable: String = "/usr/bin/pmset") throws -> String {
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
+        process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = pipe
         process.environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LC_ALL": "C"]
         try process.run()
+        let stop = DispatchWorkItem { if process.isRunning { process.terminate() } }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 15, execute: stop)
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
+        stop.cancel()
         let output = String(decoding: data, as: UTF8.self)
         guard process.terminationStatus == 0 else { throw EnergyModeError.commandFailed(output) }
         return output

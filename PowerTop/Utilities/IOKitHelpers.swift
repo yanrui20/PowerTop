@@ -1,4 +1,27 @@
 import Foundation
+
+struct BatteryStaticMetadata {
+    let serial: String?
+    let deviceName: String?
+    let designCycleCount: Int?
+    let manufactureDate: String?
+}
+
+struct BatteryMetadataCache {
+    private var cached: BatteryStaticMetadata?
+    mutating func read(properties: [String: Any],
+                       dateReader: ([String: Any]) -> String? = readBatteryManufactureDate) -> BatteryStaticMetadata {
+        let serial = extractString(from: properties, key: "Serial")
+        let name = extractString(from: properties, key: "DeviceName")
+        if let cached, cached.serial == serial, cached.deviceName == name { return cached }
+        let value = BatteryStaticMetadata(serial: serial, deviceName: name,
+            designCycleCount: extractInt(from: properties, key: "DesignCycleCount9C")
+                ?? extractInt(from: properties, key: "DesignCycleCount70"),
+            manufactureDate: dateReader(properties))
+        cached = value
+        return value
+    }
+}
 import IOKit
 
 func getIOServiceProperties(className: String) -> [String: Any]? {

@@ -210,7 +210,7 @@
 "Unable to refresh power readings." = "暂时无法刷新功率读数";
 
 // Unified administrator service and active sampling
-"Authorize once for manual and scheduled sampling and power-mode switching." = "一次授权，同时用于手动刷新、定时采样和电源模式切换。";
+"Authorize once for sampling, power-mode switching and startup-item management." = "一次授权，用于功率采样、电源模式切换和启动项管理。";
 "Administrator service is unavailable. Enable or repair it first." = "管理员权限不可用，请在“管理员权限授权”中完成授权或修复。";
 "Cannot confirm a new system sample: update time is unavailable." = "无法确认新的系统采样：系统更新时间不可用。";
 "No new system sample within 10 seconds. Existing readings are shown." = "10 秒内未获得新的系统采样，当前显示现有读数。";
@@ -226,3 +226,122 @@
 "Remove Authorization" = "移除授权";
 
 "Read: SystemPower" = "读取：SystemPower";
+
+// System resource monitoring
+"System Resources" = "系统资源";
+"Memory Usage" = "内存";
+"Download" = "下载";
+"Upload" = "上传";
+"Network interface: %@" = "网络接口：%@";
+"CPU usage across all cores, averaged since the previous reading." = "全部 CPU 核心在两次读取之间的平均占用率。";
+"GPU usage reported by the driver. With multiple GPUs, the busiest is shown." = "驱动上报的 GPU 占用率；多个 GPU 时显示占用率最高的一项。";
+"Used / total memory, excluding reusable caches. Includes wired and compressed memory." = "已用内存 / 总内存，不含可回收缓存，包含联动内存和压缩内存。";
+"Transfer rate on the primary network interface, not an internet speed test." = "主网络接口的实际传输速率，并非宽带测速结果。";
+
+// Independent resource refresh and compact menu bar
+"Battery Refresh Interval" = "电池刷新间隔";
+"Resource Refresh Interval" = "资源刷新间隔";
+"System resources refresh independently of battery sampling." = "系统资源按此间隔刷新，与电池采样独立。";
+"Show CPU in Menu Bar" = "菜单栏显示 CPU";
+"Show GPU in Menu Bar" = "菜单栏显示 GPU";
+"Show Memory in Menu Bar" = "菜单栏显示内存";
+"Show Network in Menu Bar" = "菜单栏显示网速";
+
+// Memory accounting, CPU sensors and startup disk
+"Lemon Method" = "Lemon 口径";
+"Cache-adjusted" = "扣除缓存";
+"Memory Accounting" = "内存统计口径";
+"Lemon method: active + wired + compressed memory." = "Lemon 口径：活跃内存＋联动内存＋压缩内存。";
+"Cache-adjusted: active + inactive + speculative + wired + compressed - purgeable - file-backed pages." = "扣除缓存口径：活跃＋非活跃＋推测＋联动＋压缩，再扣除可回收及文件缓存页面。";
+"CPU Temperature" = "温度";
+"Fans" = "风扇";
+"No fans" = "无风扇";
+"Fan %d" = "风扇 %d";
+"Startup Disk" = "磁盘";
+"Available / Total" = "可用 / 总共";
+"Average of the identified CPU temperature sensors. Unavailable sensors are not estimated." = "已识别 CPU 温度传感器的平均值；读取不到时不进行估算。";
+"Available space includes reclaimable storage when macOS reports it. Used percentage is total minus available." = "可用空间包含系统报告的可清理空间。已用比例按总容量减去可用空间计算。";
+"Show CPU Temperature in Menu Bar" = "菜单栏显示温度";
+"Show Fans in Menu Bar" = "菜单栏显示风扇转速";
+"Show Disk in Menu Bar" = "菜单栏显示磁盘";
+
+// Startup management and menu bar arrangement
+"Login Applications" = "登录应用";
+"User Background Items" = "用户后台服务项";
+"Shared Background Items" = "共享后台服务项";
+"System Background Services" = "系统后台服务项";
+"Bundled Background Items" = "应用内后台服务项";
+"Status Unavailable" = "状态未知";
+"All Enabled" = "全部开启";
+"All Disabled" = "全部关闭";
+"Partly Enabled" = "部分开启";
+"This startup item changed. Refresh the list and try again." = "启动项已发生变化，请刷新列表后重试。";
+"Manage this item in System Settings or its owning application." = "请在系统设置或所属应用中管理此项目。";
+"Approve this login item in System Settings to finish enabling it." = "请在系统设置中批准此登录项以完成启用。";
+"macOS did not confirm the startup-item change." = "macOS 未确认启动项设置已生效，请刷新后检查。";
+"Classic login items are currently unavailable." = "暂时无法读取传统登录项。";
+"System service states could not be read." = "无法读取部分系统服务的启用状态。";
+"Additional macOS background items are currently unavailable." = "暂时无法读取 macOS 的额外后台项目。";
+"macOS controls this item's background permission." = "此项目的后台运行权限由 macOS 管理。";
+"Manage PowerTop's battery helper under Administrator Authorization." = "请在“管理员权限授权”中管理 PowerTop 电池服务。";
+"Multiple files use this service label. Inspect the original files before changing it." = "多个文件使用同一服务标识，请先定位原文件检查，不能按单个文件切换。";
+"The original file is missing." = "原文件不存在。";
+"Startup-item change cancelled." = "已取消启动项修改。";
+"Startup setting applied. Running applications were not stopped." = "启动设置已应用，正在运行的应用未被停止。";
+"Arrange items from left to right. Hidden items keep their position." = "拖动或使用箭头调整菜单栏从左到右的顺序；关闭显示的项会保留位置。";
+"Show" = "显示";
+"Move Left" = "左移";
+"Move Right" = "右移";
+"Changes appear immediately and are saved automatically." = "修改即时生效并自动保存。";
+"Reset Order" = "恢复默认顺序";
+"Search applications or startup files" = "搜索应用或启动项文件";
+"Refresh" = "刷新";
+"System Login Settings" = "系统登录项设置";
+"Changes affect future login or startup. Running applications and services are not stopped." = "修改影响后续登录或启动，不会立即停止正在运行的应用和服务。";
+"No matching startup items." = "没有匹配的启动项。";
+"%d items" = "%d 项";
+"Some items could not be read" = "部分项目无法读取";
+"Show Original File in Finder" = "在 Finder 中显示原文件";
+"Changing this system service requires administrator authorization." = "修改此系统服务需要管理员授权。";
+"Enable or disable this startup item" = "开启或关闭此子启动项";
+"System Settings" = "系统设置";
+"Enabled" = "已开启";
+"Disabled" = "已关闭";
+"Startup Item Manager" = "启动项管理";
+"Startup Items" = "启动项管理";
+"Menu Bar Layout" = "菜单栏排列";
+"Network Speed" = "网速";
+"This service identifier cannot be changed directly." = "此服务标识不支持直接修改。";
+"This bundled service is registered by its owning app. Manage it in System Settings." = "此后台服务由所属应用注册，请在系统设置中管理。";
+
+"%.1f GB available / %.1f GB total" = "%.1f GB 可用 / %.1f GB 总共";
+"Menu Bar Power" = "功率";
+
+// Shared startup authorization and group controls
+"Authorize or repair the shared administrator service to read all background items without password prompts." = "请在“管理员权限授权”中授权或修复服务，即可免密码读取全部后台启动项。";
+"Collapse items" = "收起子项";
+"Expand all items" = "展开全部子项";
+"All startup items" = "全部启动项";
+"Enable or disable all controllable items in this application. System-managed items keep their own settings." = "统一开启或关闭此应用的所有可管理子项；系统托管项保留各自设置。";
+
+// Battery details and descriptive memory methods
+"Show Battery Details" = "展示电池详细参数";
+"Active + wired + compressed" = "活跃＋不可换出＋压缩";
+"Subtract reclaimable and file cache" = "扣除可回收与文件缓存";
+"Active + wired (not pageable) + compressed memory, divided by total physical memory." = "活跃内存＋不可换出内存（Wired）＋压缩内存，再除以物理内存总量。";
+"Active + inactive + speculative + wired + compressed, minus purgeable and file-backed memory, divided by total physical memory." = "活跃＋非活跃＋预读＋不可换出＋压缩内存，减去可回收及文件缓存，再除以物理内存总量。";
+
+// Startup registration state
+"Not Loaded" = "未加载";
+"User service loading states could not be read." = "无法读取用户服务的加载状态。";
+"System service loading states could not be read." = "无法读取系统服务的加载状态。";
+"The service could not be confirmed as loaded. Refresh and check its configuration." = "未能确认服务已加载，请刷新并检查其配置。";
+"This service is limited to another session, such as the login screen, and cannot be loaded in the current desktop session." = "此服务仅适用于其他会话（例如登录界面），无法在当前桌面会话中立即加载。";
+"Startup enabled. Supported services are now loaded." = "已开启自启动，支持直接管理的服务已加载。";
+"Startup disabled. Running applications were not stopped." = "已禁用自启动，正在运行的程序未被停止。";
+"Enabling an unloaded service loads it immediately. Disabling prevents future automatic startup without stopping running processes." = "开启未加载的服务会立即加载；关闭仅禁止后续自动启动，不会停止正在运行的程序。";
+
+// Immediate service unloading
+"Automatic startup was disabled, but unloading could not be confirmed. Refresh and try again." = "已禁用自启动，但未能确认卸载成功，请刷新后重试。";
+"Startup disabled. Supported background services have been unloaded." = "已禁用自启动，支持直接管理的后台服务已卸载。";
+"Background services load immediately when enabled and unload when disabled. Login applications only change their login registration." = "后台服务开启时立即加载，关闭时立即卸载；普通登录应用仅修改登录启动设置。";

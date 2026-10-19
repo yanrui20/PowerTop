@@ -1,7 +1,7 @@
 import Foundation
 import Security
 
-/// One optional root service for two fixed operations: battery sampling and energy modes.
+/// Shared authorization for fixed battery, energy-mode and startup operations.
 actor PrivilegedEnergyHelper {
     static let shared = PrivilegedEnergyHelper()
     static let preferenceKey = "useEnergyHelper"
@@ -81,6 +81,47 @@ actor PrivilegedEnergyHelper {
         try await request(mode: nil, source: nil, sample: true)
     }
 
+    func readStartupState() async throws -> (system: String, background: String, loaded: String) {
+        let values = try await startupRequest()
+        return (values[0], values[1], values[2])
+    }
+
+    func setStartupDaemonEnabled(_ enabled: Bool, sourcePath: String, label: String) async throws {
+        _ = try await startupRequest(enabled: enabled, sourcePath: sourcePath, label: label)
+    }
+
+    private func startupRequest(enabled: Bool? = nil, sourcePath: String = "", label: String = "") async throws -> [String] {
+        try requireEnabledService()
+        let expectedHash = try codeHash(at: helperURL())
+        return try await withCheckedThrowingContinuation { continuation in
+            let connection = NSXPCConnection(machServiceName: EnergyHelperConstants.service, options: .privileged)
+            connection.setCodeSigningRequirement("cdhash H\"\(expectedHash)\"")
+            connection.remoteObjectInterface = NSXPCInterface(with: EnergyHelperProtocol.self)
+            let gate = StartupHelperReply(continuation, connection: connection)
+            let unavailable = String(localized: "Administrator service is unavailable. Enable or repair it first.")
+            connection.invalidationHandler = { gate.finish(nil, error: unavailable) }
+            connection.interruptionHandler = connection.invalidationHandler
+            connection.resume()
+            guard let proxy = connection.remoteObjectProxyWithErrorHandler({ gate.finish(nil, error: $0.localizedDescription) }) as? EnergyHelperProtocol else {
+                gate.finish(nil, error: unavailable); return
+            }
+            proxy.ping { version in
+                guard version == EnergyHelperConstants.version else { gate.finish(nil, error: unavailable); return }
+                if let enabled {
+                    proxy.setStartupDaemonEnabled(enabled, sourcePath: sourcePath, label: label) { error in
+                        gate.finish([], error: error)
+                    }
+                } else {
+                    proxy.readStartupState { system, background, loaded, error in
+                        guard let system, let background, let loaded else { gate.finish(nil, error: error ?? unavailable); return }
+                        gate.finish([system, background, loaded], error: error)
+                    }
+                }
+            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + 35) { gate.finish(nil, error: unavailable) }
+        }
+    }
+
     private func request(mode: EnergyMode?, source: EnergyPowerSource?, sample: Bool = false) async throws {
         let expectedHash = try codeHash(at: helperURL())
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
@@ -149,6 +190,23 @@ actor PrivilegedEnergyHelper {
         process.waitUntilExit()
         if output.trimmingCharacters(in: .whitespacesAndNewlines) == "POWERTOP_AUTH_CANCELLED" { throw EnergyModeError.commandFailed(String(localized: "Administrator authorization cancelled.")) }
         guard process.terminationStatus == 0 else { throw EnergyModeError.commandFailed(output) }
+    }
+}
+
+private final class StartupHelperReply: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<[String], Error>?
+    private let connection: NSXPCConnection
+    init(_ continuation: CheckedContinuation<[String], Error>, connection: NSXPCConnection) {
+        self.continuation = continuation; self.connection = connection
+    }
+    func finish(_ values: [String]?, error: String?) {
+        lock.lock(); let pending = continuation; continuation = nil; lock.unlock()
+        guard let pending else { return }
+        connection.invalidationHandler = nil; connection.interruptionHandler = nil
+        connection.invalidate()
+        if let error { pending.resume(throwing: EnergyModeError.commandFailed(error)) }
+        else { pending.resume(returning: values ?? []) }
     }
 }
 

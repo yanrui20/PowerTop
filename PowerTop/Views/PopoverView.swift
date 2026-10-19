@@ -5,6 +5,8 @@ struct PopoverView: View {
 
     let monitor: PowerMonitor
     var openDetails: (() -> Void)? = nil
+    var openStartupItems: (() -> Void)? = nil
+    var openMenuBarLayout: (() -> Void)? = nil
 
     @State private var isManuallyRefreshing = false
     @State private var refreshFeedback: String?
@@ -14,7 +16,7 @@ struct PopoverView: View {
     private var data: PowerData { monitor.currentData }
 
     var body: some View {
-        ScrollView {
+        ScrollView(showsIndicators: false) {
             contentSections
         }
         .frame(width: Self.preferredWidth, height: min(760, (NSScreen.main?.visibleFrame.height ?? 850) - 60))
@@ -32,6 +34,10 @@ struct PopoverView: View {
                 .padding(.vertical, 8)
             Divider().padding(.horizontal, 12)
             metricsSection
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+            Divider().padding(.horizontal, 12)
+            SystemMetricsView(metrics: monitor.systemMetrics.snapshot, memoryAccounting: monitor.memoryAccounting)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
             Divider().padding(.horizontal, 12)
@@ -98,6 +104,7 @@ struct PopoverView: View {
                     refreshFeedback = nil
                     isManuallyRefreshing = true
                     let before = (data.systemPowerW, data.batteryPowerW, data.acInputW)
+                    await monitor.systemMetrics.refresh(forceSlow: true)
                     do {
                         let sampleTime = try await monitor.refreshImmediately()
                         let after = (data.systemPowerW, data.batteryPowerW, data.acInputW)
@@ -369,7 +376,7 @@ struct PopoverView: View {
     // MARK: - Battery
 
     private var batterySection: some View {
-        VStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: 6) {
             let levelTint: Color = data.batteryPercent <= 20
                 ? .red
                 : (data.batteryPercent <= 50 ? .orange : .green)
@@ -423,6 +430,12 @@ struct PopoverView: View {
                     wrapsValue: true
                 )
             }
+            Button(String(localized: "Show Battery Details")) { openDetailWindow() }
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+                .buttonStyle(.plain)
+                .focusEffectDisabled()
+                .padding(.top, 2)
         }
     }
 
@@ -520,27 +533,18 @@ struct PopoverView: View {
 
     private var footerSection: some View {
         VStack(spacing: 6) {
-            Button {
-                openDetailWindow()
-            } label: {
-                HStack {
-                    Image(systemName: "chart.bar.doc.horizontal")
-                    Text(String(localized: "Details"))
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(.tertiary)
-                }
-                .font(.system(size: 12))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+            HStack {
+                Button(String(localized: "Startup Items")) { openStartupItems?() }
+                    .disabled(openStartupItems == nil)
+                Button(String(localized: "Menu Bar Layout")) { openMenuBarLayout?() }
+                    .disabled(openMenuBarLayout == nil)
+                Spacer(minLength: 0)
             }
-            .buttonStyle(.plain)
-            .focusEffectDisabled()
+            .font(.system(size: 11)).buttonStyle(.bordered)
 
             VStack(alignment: .leading, spacing: 8) {
                 RefreshIntervalEditor(monitor: monitor)
+                RefreshIntervalEditor(monitor: monitor, scope: .resources)
                 Toggle(String(localized: "Launch at Login"), isOn: Binding(
                     get: { monitor.launchAtLogin },
                     set: { monitor.launchAtLogin = $0 }
@@ -554,20 +558,6 @@ struct PopoverView: View {
                         .foregroundStyle(.red)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-
-                Toggle(String(localized: "Show Battery in Menu Bar"), isOn: Binding(
-                    get: { monitor.showBatteryInMenuBar },
-                    set: { monitor.showBatteryInMenuBar = $0 }
-                ))
-                .toggleStyle(.checkbox)
-                .font(.system(size: 11))
-
-                Toggle(String(localized: "Show Power in Menu Bar"), isOn: Binding(
-                    get: { monitor.showPowerInMenuBar },
-                    set: { monitor.showPowerInMenuBar = $0 }
-                ))
-                .toggleStyle(.checkbox)
-                .font(.system(size: 11))
 
                 AdministratorAuthorizationView(controller: monitor.energyModes)
             }

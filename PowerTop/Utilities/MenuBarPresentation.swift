@@ -19,21 +19,27 @@ struct MenuBarPresentation: Equatable {
     let tint: Tint
     let symbol: String?
     let title: String
+    let resources: [MenuBarResourceItem]
+    let itemOrder: [MenuBarItemKind]
 
     init(available: Bool, percent: Int, charging: Bool, onAC: Bool,
-         showBattery: Bool, showPower: Bool, powerText: String, mode: EnergyMode? = nil) {
+         showBattery: Bool, showPower: Bool, powerText: String, mode: EnergyMode? = nil,
+         resources: [MenuBarResourceItem] = [], itemOrder: [MenuBarItemKind] = MenuBarItemKind.defaultOrder) {
+        self.itemOrder = MenuBarItemKind.normalized(itemOrder.map(\.rawValue))
+        self.resources = resources
+        let hasBatterySymbol = showBattery || (!showPower && resources.isEmpty)
         // An unavailable reading must not imply a particular energy mode.
         tint = !available ? .system : (mode == .low ? .yellow : (mode == .high ? .white : .system))
         batteryPercent = available && showBattery ? min(100, max(0, percent)) : nil
         chargingBadge = !available || !charging || !onAC ? .none
-            : (showBattery || !showPower ? .battery : .afterPower)
+            : (hasBatterySymbol ? .battery : (showPower ? .afterPower : .none))
         guard available else {
-            symbol = "exclamationmark.triangle"
+            symbol = showBattery || showPower || resources.isEmpty ? "exclamationmark.triangle" : nil
             title = ""
             return
         }
         title = showPower ? powerText : ""
-        symbol = showBattery || !showPower ? "battery.50" : nil
+        symbol = hasBatterySymbol ? "battery.50" : nil
     }
     var titleBadgeIndex: Int? {
         switch chargingBadge {
@@ -42,13 +48,13 @@ struct MenuBarPresentation: Equatable {
         }
     }
 
-    func attributedTitle(font: NSFont) -> NSAttributedString {
+    func attributedTitle(font: NSFont, normalColor: NSColor? = nil) -> NSAttributedString {
         var attributes: [NSAttributedString.Key: Any] = [.font: font]
-        if let color = tint.color { attributes[.foregroundColor] = color }
+        if let normalColor { attributes[.foregroundColor] = normalColor }
         let result = NSMutableAttributedString(string: title, attributes: attributes)
         if let index = titleBadgeIndex {
             let attachment = NSTextAttachment()
-            attachment.image = Self.symbolImage("bolt.fill", tint: tint)
+            attachment.image = Self.symbolImage("bolt.fill", tint: .system)
             attachment.bounds = NSRect(x: 0, y: 1.5, width: 4, height: 7)
             let badge = NSMutableAttributedString(string: "", attributes: attributes)
             badge.append(NSAttributedString(attachment: attachment))

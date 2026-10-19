@@ -31,7 +31,12 @@ struct HelperXPCTests {
                 guard version == EnergyHelperConstants.version else { gate.finish(false); return }
                 remote.setMode(99, source: "AC Power") { error in
                     guard error != nil else { gate.finish(false); return }
-                    remote.requestBatterySample { sampleError in gate.finish(sampleError == nil) }
+                    remote.requestBatterySample { sampleError in
+                        guard sampleError == nil else { gate.finish(false); return }
+                        remote.setStartupDaemonEnabled(false, sourcePath: "/tmp/invalid.plist", label: "com.apple.security") { error in
+                            gate.finish(error != nil)
+                        }
+                    }
                 }
             }
             DispatchQueue.global().asyncAfter(deadline: .now() + 5) { gate.finish(false) }
@@ -48,7 +53,54 @@ struct HelperXPCTests {
             failed.requestBatterySample { continuation.resume(returning: $0) }
         }
         precondition(error != nil)
-        print("PASS: one signed service handles mode validation and sampling; wrong signatures and sampling errors rejected; no hardware request made")
+        for label in ["com.apple.security", EnergyHelperConstants.service, "a\n", "../../bad", "x;id", ""] {
+            precondition(!StartupServicePolicy.validLabel(label))
+        }
+        for path in ["/tmp/invalid.plist", "/Library/LaunchDaemons/../LaunchAgents/bad.plist", EnergyHelperConstants.plist] {
+            precondition(!StartupServicePolicy.validDaemon(path: path, label: "example"))
+        }
+        let listed = StartupServicePolicy.loadedLabels("PID\tStatus\tLabel\n-\t0\texample.waiting\n123\t-9\texample.running\n")
+        precondition(listed == ["example.waiting", "example.running"], "No PID still means loaded")
+        precondition(StartupServicePolicy.loadedLabels("permission denied") == nil)
+        precondition(StartupServicePolicy.loadedLabels("PID Status Label\nmalformed") == nil)
+        precondition(StartupServicePolicy.loadedLabels("PID Status Label") == [])
+        precondition(!StartupServicePolicy.supportsCurrentSession(["LimitLoadToSessionType": ["LoginWindow"]]))
+        precondition(StartupServicePolicy.supportsCurrentSession(["LimitLoadToSessionType": "Aqua"]))
+        var commands: [[String]] = []
+        var loaded = false
+        func runner(_ args: [String]) throws -> String {
+            commands.append(args)
+            if args.first == "bootstrap" { loaded = true }
+            if args.first == "bootout" { loaded = false }
+            return "PID\tStatus\tLabel\n" + (loaded ? "-\t0\texample.service\n" : "")
+        }
+        try StartupServiceAction.apply(enabled: true, domain: "gui/501", label: "example.service", path: "/tmp/example.plist", run: runner)
+        precondition(commands.contains(["bootstrap", "gui/501", "/tmp/example.plist"]))
+        commands = []
+        try StartupServiceAction.apply(enabled: true, domain: "gui/501", label: "example.service", path: "/tmp/example.plist", run: runner)
+        precondition(!commands.contains(where: { $0.first == "bootstrap" }), "Already loaded service must not restart")
+        commands = []
+        try StartupServiceAction.apply(enabled: false, domain: "gui/501", label: "example.service", path: "/tmp/example.plist", run: runner)
+        precondition(commands.first == ["disable", "gui/501/example.service"])
+        precondition(commands.contains(["bootout", "gui/501/example.service"]) && !loaded)
+        commands = []
+        try StartupServiceAction.apply(enabled: false, domain: "gui/501", label: "example.service", path: "/tmp/example.plist", run: runner)
+        precondition(!commands.contains(where: { $0.first == "bootout" }), "Already unloaded services are successful without another bootout")
+        do {
+            try StartupServiceAction.apply(enabled: false, domain: "system", label: "example.service", path: "/tmp/example.plist") { _ in "PID Status Label\n123 0 example.service\n" }
+            preconditionFailure("An unload that leaves the service registered must not succeed")
+        } catch {}
+        do {
+            try StartupServiceAction.apply(enabled: false, domain: "system", label: "example.service", path: "/tmp/example.plist") { _ in "invalid response" }
+            preconditionFailure("An unreadable state must not count as unloaded")
+        } catch {}
+        do {
+            try StartupServiceAction.apply(enabled: true, domain: "system", label: "example.service", path: "/tmp/example.plist") { _ in "PID Status Label\n" }
+            preconditionFailure("A load that does not register must fail verification")
+        } catch {}
+        let filtered = StartupServicePolicy.backgroundRecords("Records for UID 501 : user\nkept\nRecords for UID 502 : other\nsecret\nRecords for UID -2 : shared\nshared", ownerUID: 501)
+        precondition(filtered.contains("kept") && filtered.contains("shared") && !filtered.contains("secret"))
+        print("PASS: signed service validates modes, sampling and startup mutations; wrong signatures, unsafe paths/labels and other users' records rejected; no real startup item changed")
     }
 }
 

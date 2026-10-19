@@ -8,6 +8,7 @@ SWIFTC="$(xcrun --find swiftc)"
 "$SWIFTC" -sdk "$SDK" -target arm64-apple-macosx14.0 -parse-as-library \
     "$ROOT/PowerTop/Shared/EnergyHelperProtocol.swift" "$ROOT/PowerTop/Shared/SystemBatterySampling.swift" \
     "$ROOT/PowerTop/Models/EnergyMode.swift" \
+    "$ROOT/PowerTop/Shared/StartupServicePolicy.swift" \
     "$ROOT/Helper/EnergyHelper.swift" "$ROOT/scripts/helper-xpc-tests.swift" -o "$TEST_DIR/xpc-tests"
 codesign --force --sign - --options runtime "$TEST_DIR/xpc-tests"
 "$TEST_DIR/xpc-tests"

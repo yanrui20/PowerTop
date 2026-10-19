@@ -9,6 +9,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func startIfNeeded() {
         guard !didStart else { return }
         didStart = true
+        if CommandLine.arguments.contains("--verify-startup-service") || CommandLine.arguments.contains("--inspect-startup-items") {
+            Task {
+                do {
+                    try await PrivilegedEnergyHelper.shared.ping()
+                    let backend = SystemStartupItemsBackend()
+                    if CommandLine.arguments.contains("--inspect-startup-items") {
+                        let snapshot = try await backend.read()
+                        for item in snapshot.items {
+                            print("\(item.applicationName) | \(item.sourceTitle) | \(item.state) | allowed=\(String(describing: item.enabled)) loaded=\(String(describing: item.loaded))")
+                        }
+                        for warning in snapshot.warnings { fputs("Startup warning: \(warning)\n", stderr) }
+                        exit(snapshot.warnings.isEmpty ? 0 : 1)
+                    }
+                    for pass in 1...2 {
+                        let snapshot = try await backend.read()
+                        guard snapshot.warnings.isEmpty else { throw StartupError.unavailable(snapshot.warnings.joined(separator: "\n")) }
+                        print("PASS startup read \(pass): \(snapshot.items.count) items, no authorization dialog requested")
+                    }
+                    do {
+                        try await PrivilegedEnergyHelper.shared.setStartupDaemonEnabled(false, sourcePath: "/tmp/invalid.plist", label: "com.apple.security")
+                        fputs("FAIL: unsafe startup request accepted\n", stderr); exit(1)
+                    } catch { print("PASS: unsafe startup request rejected; no startup settings changed") }
+                    exit(0)
+                } catch { fputs("Startup service: \(error.localizedDescription)\n", stderr); exit(1) }
+            }
+            return
+        }
         if CommandLine.arguments.contains("--configure-admin-service") || CommandLine.arguments.contains("--verify-active-refresh") {
             Task { @MainActor in
                 if CommandLine.arguments.contains("--configure-admin-service") {

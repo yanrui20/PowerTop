@@ -210,7 +210,7 @@
 "Unable to refresh power readings." = "Unable to refresh power readings.";
 
 // Unified administrator service and active sampling
-"Authorize once for manual and scheduled sampling and power-mode switching." = "Authorize once for manual and scheduled sampling and power-mode switching.";
+"Authorize once for sampling, power-mode switching and startup-item management." = "Authorize once for sampling, power-mode switching and startup-item management.";
 "Administrator service is unavailable. Enable or repair it first." = "Administrator service is unavailable. Enable or repair it first.";
 "Cannot confirm a new system sample: update time is unavailable." = "Cannot confirm a new system sample: update time is unavailable.";
 "No new system sample within 10 seconds. Existing readings are shown." = "No new system sample within 10 seconds. Existing readings are shown.";
@@ -226,3 +226,122 @@
 "Remove Authorization" = "Remove Authorization";
 
 "Read: SystemPower" = "Read: SystemPower";
+
+// System resource monitoring
+"System Resources" = "System Resources";
+"Memory Usage" = "Memory";
+"Download" = "Download";
+"Upload" = "Upload";
+"Network interface: %@" = "Network interface: %@";
+"CPU usage across all cores, averaged since the previous reading." = "CPU usage across all cores, averaged since the previous reading.";
+"GPU usage reported by the driver. With multiple GPUs, the busiest is shown." = "GPU usage reported by the driver. With multiple GPUs, the busiest is shown.";
+"Used / total memory, excluding reusable caches. Includes wired and compressed memory." = "Used / total memory, excluding reusable caches. Includes wired and compressed memory.";
+"Transfer rate on the primary network interface, not an internet speed test." = "Transfer rate on the primary network interface, not an internet speed test.";
+
+// Independent resource refresh and compact menu bar
+"Battery Refresh Interval" = "Battery Refresh Interval";
+"Resource Refresh Interval" = "Resource Refresh Interval";
+"System resources refresh independently of battery sampling." = "System resources refresh independently of battery sampling.";
+"Show CPU in Menu Bar" = "Show CPU in Menu Bar";
+"Show GPU in Menu Bar" = "Show GPU in Menu Bar";
+"Show Memory in Menu Bar" = "Show Memory in Menu Bar";
+"Show Network in Menu Bar" = "Show Network in Menu Bar";
+
+// Memory accounting, CPU sensors and startup disk
+"Lemon Method" = "Lemon Method";
+"Cache-adjusted" = "Cache-adjusted";
+"Memory Accounting" = "Memory Accounting";
+"Lemon method: active + wired + compressed memory." = "Lemon method: active + wired + compressed memory.";
+"Cache-adjusted: active + inactive + speculative + wired + compressed - purgeable - file-backed pages." = "Cache-adjusted: active + inactive + speculative + wired + compressed - purgeable - file-backed pages.";
+"CPU Temperature" = "Temperature";
+"Fans" = "Fans";
+"No fans" = "No fans";
+"Fan %d" = "Fan %d";
+"Startup Disk" = "Disk";
+"Available / Total" = "Available / Total";
+"Average of the identified CPU temperature sensors. Unavailable sensors are not estimated." = "Average of the identified CPU temperature sensors. Unavailable sensors are not estimated.";
+"Available space includes reclaimable storage when macOS reports it. Used percentage is total minus available." = "Available space includes reclaimable storage when macOS reports it. Used percentage is total minus available.";
+"Show CPU Temperature in Menu Bar" = "Show Temperature in Menu Bar";
+"Show Fans in Menu Bar" = "Show Fans in Menu Bar";
+"Show Disk in Menu Bar" = "Show Disk in Menu Bar";
+
+// Startup management and menu bar arrangement
+"Login Applications" = "Login Applications";
+"User Background Items" = "User Background Items";
+"Shared Background Items" = "Shared Background Items";
+"System Background Services" = "System Background Services";
+"Bundled Background Items" = "Bundled Background Items";
+"Status Unavailable" = "Status Unavailable";
+"All Enabled" = "All Enabled";
+"All Disabled" = "All Disabled";
+"Partly Enabled" = "Partly Enabled";
+"This startup item changed. Refresh the list and try again." = "This startup item changed. Refresh the list and try again.";
+"Manage this item in System Settings or its owning application." = "Manage this item in System Settings or its owning application.";
+"Approve this login item in System Settings to finish enabling it." = "Approve this login item in System Settings to finish enabling it.";
+"macOS did not confirm the startup-item change." = "macOS did not confirm the startup-item change.";
+"Classic login items are currently unavailable." = "Classic login items are currently unavailable.";
+"System service states could not be read." = "System service states could not be read.";
+"Additional macOS background items are currently unavailable." = "Additional macOS background items are currently unavailable.";
+"macOS controls this item's background permission." = "macOS controls this item's background permission.";
+"Manage PowerTop's battery helper under Administrator Authorization." = "Manage PowerTop's battery helper under Administrator Authorization.";
+"Multiple files use this service label. Inspect the original files before changing it." = "Multiple files use this service label. Inspect the original files before changing it.";
+"The original file is missing." = "The original file is missing.";
+"Startup-item change cancelled." = "Startup-item change cancelled.";
+"Startup setting applied. Running applications were not stopped." = "Startup setting applied. Running applications were not stopped.";
+"Arrange items from left to right. Hidden items keep their position." = "Arrange items from left to right. Hidden items keep their position.";
+"Show" = "Show";
+"Move Left" = "Move Left";
+"Move Right" = "Move Right";
+"Changes appear immediately and are saved automatically." = "Changes appear immediately and are saved automatically.";
+"Reset Order" = "Reset Order";
+"Search applications or startup files" = "Search applications or startup files";
+"Refresh" = "Refresh";
+"System Login Settings" = "System Login Settings";
+"Changes affect future login or startup. Running applications and services are not stopped." = "Changes affect future login or startup. Running applications and services are not stopped.";
+"No matching startup items." = "No matching startup items.";
+"%d items" = "%d items";
+"Some items could not be read" = "Some items could not be read";
+"Show Original File in Finder" = "Show Original File in Finder";
+"Changing this system service requires administrator authorization." = "Changing this system service requires administrator authorization.";
+"Enable or disable this startup item" = "Enable or disable this startup item";
+"System Settings" = "System Settings";
+"Enabled" = "Enabled";
+"Disabled" = "Disabled";
+"Startup Item Manager" = "Startup Item Manager";
+"Startup Items" = "Startup Items";
+"Menu Bar Layout" = "Menu Bar Layout";
+"Network Speed" = "Network Speed";
+"This service identifier cannot be changed directly." = "This service identifier cannot be changed directly.";
+"This bundled service is registered by its owning app. Manage it in System Settings." = "This bundled service is registered by its owning app. Manage it in System Settings.";
+
+"%.1f GB available / %.1f GB total" = "%.1f GB available / %.1f GB total";
+"Menu Bar Power" = "Menu Bar Power";
+
+// Shared startup authorization and group controls
+"Authorize or repair the shared administrator service to read all background items without password prompts." = "Authorize or repair the shared administrator service to read all background items without password prompts.";
+"Collapse items" = "Collapse items";
+"Expand all items" = "Expand all items";
+"All startup items" = "All startup items";
+"Enable or disable all controllable items in this application. System-managed items keep their own settings." = "Enable or disable all controllable items in this application. System-managed items keep their own settings.";
+
+// Battery details and descriptive memory methods
+"Show Battery Details" = "Show Battery Details";
+"Active + wired + compressed" = "Active + wired + compressed";
+"Subtract reclaimable and file cache" = "Subtract reclaimable and file cache";
+"Active + wired (not pageable) + compressed memory, divided by total physical memory." = "Active + wired (not pageable) + compressed memory, divided by total physical memory.";
+"Active + inactive + speculative + wired + compressed, minus purgeable and file-backed memory, divided by total physical memory." = "Active + inactive + speculative + wired + compressed, minus purgeable and file-backed memory, divided by total physical memory.";
+
+// Startup registration state
+"Not Loaded" = "Not Loaded";
+"User service loading states could not be read." = "User service loading states could not be read.";
+"System service loading states could not be read." = "System service loading states could not be read.";
+"The service could not be confirmed as loaded. Refresh and check its configuration." = "The service could not be confirmed as loaded. Refresh and check its configuration.";
+"This service is limited to another session, such as the login screen, and cannot be loaded in the current desktop session." = "This service is limited to another session, such as the login screen, and cannot be loaded in the current desktop session.";
+"Startup enabled. Supported services are now loaded." = "Startup enabled. Supported services are now loaded.";
+"Startup disabled. Running applications were not stopped." = "Startup disabled. Running applications were not stopped.";
+"Enabling an unloaded service loads it immediately. Disabling prevents future automatic startup without stopping running processes." = "Enabling an unloaded service loads it immediately. Disabling prevents future automatic startup without stopping running processes.";
+
+// Immediate service unloading
+"Automatic startup was disabled, but unloading could not be confirmed. Refresh and try again." = "Automatic startup was disabled, but unloading could not be confirmed. Refresh and try again.";
+"Startup disabled. Supported background services have been unloaded." = "Startup disabled. Supported background services have been unloaded.";
+"Background services load immediately when enabled and unload when disabled. Login applications only change their login registration." = "Background services load immediately when enabled and unload when disabled. Login applications only change their login registration.";

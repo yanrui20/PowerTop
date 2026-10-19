@@ -22,6 +22,9 @@ struct StatusLayoutTests {
         let suite = "PowerTop.LayoutTests." + UUID().uuidString
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
+        for key in ["showCPUInMenuBar", "showGPUInMenuBar", "showMemoryInMenuBar", "showNetworkInMenuBar"] {
+            defaults.set(false, forKey: key) // Retain the original battery-only layout checks.
+        }
         let backend = ColorTestBackend()
         let modes = EnergyModeController(backend: backend)
         let monitor = PowerMonitor(defaults: defaults, energyModes: modes)
@@ -36,15 +39,15 @@ struct StatusLayoutTests {
         modes.startMonitoring(interval: 5)
         try await Task.sleep(for: .milliseconds(150))
         precondition(monitor.menuBarPresentation.tint == .yellow)
-        precondition(controller.testTextColor == .systemYellow)
+        precondition(controller.testTextColor == nil, "Power text must keep the normal menu color")
         await backend.setMode(.high)
         try await Task.sleep(for: .milliseconds(5300))
         precondition(monitor.menuBarPresentation.tint == .white)
-        precondition(controller.testTextColor == .white, "Closed-panel system changes must update text")
+        precondition(controller.testTextColor == nil, "High power must not recolor power text")
         for (mode, color) in [(EnergyMode.low, NSColor.systemYellow), (.high, .white), (.automatic, nil)] as [(EnergyMode, NSColor?)] {
             await modes.select(mode, source: .battery)
             try await Task.sleep(for: .milliseconds(150))
-            precondition(controller.testTextColor == color)
+            precondition(controller.testTextColor == nil)
             if let dir = ProcessInfo.processInfo.environment["POWERTOP_TEST_PREVIEW_DIR"] {
                 try controller.saveButtonForTest(to: URL(fileURLWithPath: dir).appendingPathComponent("mode-\(mode.rawValue)-text.png"))
             }
@@ -58,7 +61,7 @@ struct StatusLayoutTests {
             monitor.showPowerInMenuBar = true
         }
         modes.stopMonitoring()
-        print("PASS: mode colors update for text/icons with the panel closed; automatic restores system tint")
+        print("PASS: only the battery changes mode color; other menu text stays normal")
         controller.showForLayoutTest()
         try await Task.sleep(for: .milliseconds(300))
         for (battery, power) in [(false, false), (true, false), (true, true), (false, true), (false, false), (true, false)] {

@@ -17,7 +17,24 @@ final class PowerMonitor {
     private var isSleeping = false
     let energyModes: EnergyModeController
     let significantEnergyApps = SignificantEnergyApps()
-    var isPopoverVisible = false
+    let systemMetrics: SystemMetricsMonitor
+    var isPopoverVisible = false {
+        didSet {
+            guard oldValue != isPopoverVisible else { return }
+            configureResourceMonitoring(forceSlow: isPopoverVisible)
+            if isPopoverVisible && !isSleeping { updateData() }
+        }
+    }
+    var isBatteryDetailsVisible = false {
+        didSet {
+            if isBatteryDetailsVisible && !oldValue && !isSleeping { updateData() }
+        }
+    }
+    private var batteryMetadata = BatteryMetadataCache()
+    #if POWER_TOP_TESTING
+    private(set) var batteryCellReadCount = 0
+    #endif
+
     private static let showBatteryInMenuBarKey = "showBatteryInMenuBar"
     var showBatteryInMenuBar: Bool {
         didSet { defaults.set(showBatteryInMenuBar, forKey: Self.showBatteryInMenuBarKey) }
@@ -28,7 +45,134 @@ final class PowerMonitor {
                             charging: currentData.isBatteryCharging, onAC: currentData.effectiveIsOnAC,
                             showBattery: showBatteryInMenuBar, showPower: showPowerInMenuBar,
                             powerText: currentData.menuBarPowerText,
-                            mode: energyModes.settings[currentData.isOnAC ? .adapter : .battery]?.mode)
+                            mode: energyModes.settings[currentData.isOnAC ? .adapter : .battery]?.mode,
+                            resources: menuBarResourceItems, itemOrder: menuBarOrder)
+    }
+
+    var menuBarOrder: [MenuBarItemKind] {
+        didSet {
+            let valid = MenuBarItemKind.normalized(menuBarOrder.map(\.rawValue))
+            if valid != menuBarOrder { menuBarOrder = valid }
+            defaults.set(valid.map(\.rawValue), forKey: "menuBarItemOrder")
+        }
+    }
+    func moveMenuBarItem(_ item: MenuBarItemKind, offset: Int) {
+        guard let index = menuBarOrder.firstIndex(of: item), menuBarOrder.indices.contains(index + offset) else { return }
+        menuBarOrder.swapAt(index, index + offset)
+    }
+    func moveMenuBarItems(from offsets: IndexSet, to destination: Int) {
+        let indices = offsets.filter { menuBarOrder.indices.contains($0) }.sorted()
+        let moved = indices.map { menuBarOrder[$0] }
+        var remaining = menuBarOrder.enumerated().filter { !indices.contains($0.offset) }.map(\.element)
+        let target = min(remaining.count, max(0, destination - indices.filter { $0 < destination }.count))
+        remaining.insert(contentsOf: moved, at: target)
+        menuBarOrder = remaining
+    }
+    func isMenuBarItemEnabled(_ item: MenuBarItemKind) -> Bool {
+        switch item {
+        case .battery: return showBatteryInMenuBar
+        case .power: return showPowerInMenuBar
+        case .cpu: return showCPUInMenuBar
+        case .gpu: return showGPUInMenuBar
+        case .memory: return showMemoryInMenuBar
+        case .network: return showNetworkInMenuBar
+        case .temperature: return showTemperatureInMenuBar
+        case .fans: return showFansInMenuBar
+        case .disk: return showDiskInMenuBar
+        }
+    }
+    func setMenuBarItem(_ item: MenuBarItemKind, enabled: Bool) {
+        switch item {
+        case .battery: showBatteryInMenuBar = enabled
+        case .power: showPowerInMenuBar = enabled
+        case .cpu: showCPUInMenuBar = enabled
+        case .gpu: showGPUInMenuBar = enabled
+        case .memory: showMemoryInMenuBar = enabled
+        case .network: showNetworkInMenuBar = enabled
+        case .temperature: showTemperatureInMenuBar = enabled
+        case .fans: showFansInMenuBar = enabled
+        case .disk: showDiskInMenuBar = enabled
+        }
+    }
+
+    var showCPUInMenuBar: Bool {
+        didSet { defaults.set(showCPUInMenuBar, forKey: "showCPUInMenuBar"); configureResourceMonitoring() }
+    }
+    var showGPUInMenuBar: Bool {
+        didSet { defaults.set(showGPUInMenuBar, forKey: "showGPUInMenuBar"); configureResourceMonitoring() }
+    }
+    var showMemoryInMenuBar: Bool {
+        didSet { defaults.set(showMemoryInMenuBar, forKey: "showMemoryInMenuBar"); configureResourceMonitoring() }
+    }
+    var showNetworkInMenuBar: Bool {
+        didSet { defaults.set(showNetworkInMenuBar, forKey: "showNetworkInMenuBar"); configureResourceMonitoring() }
+    }
+    var showTemperatureInMenuBar: Bool {
+        didSet { defaults.set(showTemperatureInMenuBar, forKey: "showTemperatureInMenuBar"); configureResourceMonitoring() }
+    }
+    var showFansInMenuBar: Bool {
+        didSet { defaults.set(showFansInMenuBar, forKey: "showFansInMenuBar"); configureResourceMonitoring() }
+    }
+    var showDiskInMenuBar: Bool {
+        didSet { defaults.set(showDiskInMenuBar, forKey: "showDiskInMenuBar"); configureResourceMonitoring() }
+    }
+    var resourceSelection: SystemMetricSelection {
+        if isPopoverVisible { return .all }
+        var result: SystemMetricSelection = []
+        if showCPUInMenuBar { result.insert(.cpu) }
+        if showGPUInMenuBar { result.insert(.gpu) }
+        if showMemoryInMenuBar { result.insert(.memory) }
+        if showNetworkInMenuBar { result.insert(.network) }
+        if showTemperatureInMenuBar { result.insert(.temperature) }
+        if showFansInMenuBar { result.insert(.fans) }
+        if showDiskInMenuBar { result.insert(.disk) }
+        return result
+    }
+    private func configureResourceMonitoring(forceSlow: Bool = false) {
+        guard isMonitoring, !isSleeping else { return }
+        systemMetrics.start(interval: resourceRefreshInterval, selection: resourceSelection, forceSlow: forceSlow)
+    }
+    var memoryAccounting: MemoryAccounting {
+        didSet { defaults.set(memoryAccounting.rawValue, forKey: "memoryAccounting") }
+    }
+    private var menuBarResourceItems: [MenuBarResourceItem] {
+        guard showCPUInMenuBar || showGPUInMenuBar || showMemoryInMenuBar || showNetworkInMenuBar || showTemperatureInMenuBar || showFansInMenuBar || showDiskInMenuBar else { return [] }
+        let metrics = systemMetrics.snapshot
+        var items: [MenuBarResourceItem] = []
+        if showCPUInMenuBar { items.append(.percent(metrics.cpuPercent, label: "CPU")) }
+        if showGPUInMenuBar { items.append(.percent(metrics.gpuPercent, label: "GPU")) }
+        if showMemoryInMenuBar { items.append(.percent(metrics.memory?.percent(for: memoryAccounting), label: "MEM")) }
+        if showNetworkInMenuBar {
+            items.append(.network(upload: metrics.uploadBytesPerSecond, download: metrics.downloadBytesPerSecond))
+        }
+        if showTemperatureInMenuBar {
+            items.append(.init(top: metrics.hardware.cpuTemperature.map { String(format: "%.0f°", $0.averageCelsius) } ?? "—", bottom: "TEMP"))
+        }
+        if showFansInMenuBar {
+            let rpm = metrics.hardware.fans?.compactMap(\.rpm).max()
+            items.append(.init(top: rpm.map { String(format: "%.0f", $0) } ?? "—", bottom: "RPM"))
+        }
+        if showDiskInMenuBar { items.append(.percent(metrics.disk?.usedPercent, label: "DISK")) }
+        return items
+    }
+    var menuBarToolTip: String {
+        var parts = ["PowerTop"]
+        if isDataAvailable { parts.append("\(currentData.batteryPercent)% · \(currentData.menuBarPowerText)") }
+        let metrics = systemMetrics.snapshot
+        if showCPUInMenuBar { parts.append("CPU \(SystemMetricsSnapshot.percentText(metrics.cpuPercent))") }
+        if showGPUInMenuBar { parts.append("GPU \(SystemMetricsSnapshot.percentText(metrics.gpuPercent))") }
+        if showMemoryInMenuBar { parts.append("MEM \(metrics.memoryText(using: memoryAccounting))") }
+        if showNetworkInMenuBar {
+            parts.append("↑ \(SystemMetricsSnapshot.rateText(metrics.uploadBytesPerSecond))  ↓ \(SystemMetricsSnapshot.rateText(metrics.downloadBytesPerSecond))")
+        }
+        if showTemperatureInMenuBar {
+            parts.append("CPU \(metrics.hardware.cpuTemperature.map { String(format: "%.1f °C", $0.averageCelsius) } ?? "—")")
+        }
+        if showFansInMenuBar, let fans = metrics.hardware.fans {
+            parts.append(contentsOf: fans.map { "Fan \($0.index + 1): \($0.rpm.map { String(format: "%.0f RPM", $0) } ?? "—")" })
+        }
+        if showDiskInMenuBar { parts.append("Disk \(metrics.disk?.capacityText ?? "—")") }
+        return parts.joined(separator: " · ")
     }
 
     private static let showPowerInMenuBarKey = "showPowerInMenuBar"
@@ -38,8 +182,10 @@ final class PowerMonitor {
     var uiRefreshToken: Int = 0
     var isDataAvailable: Bool = true
     var launchAtLoginError: String?
+    @ObservationIgnored private var synchronizingLoginState = false
     var launchAtLogin: Bool {
         didSet {
+            guard !synchronizingLoginState else { return }
             do {
                 if launchAtLogin {
                     try SMAppService.mainApp.register()
@@ -52,6 +198,11 @@ final class PowerMonitor {
                 launchAtLoginError = error.localizedDescription
             }
         }
+    }
+    func refreshLaunchAtLoginStatus() {
+        synchronizingLoginState = true
+        launchAtLogin = SMAppService.mainApp.status == .enabled
+        synchronizingLoginState = false
     }
     var showPowerInMenuBar: Bool {
         didSet {
@@ -76,6 +227,14 @@ final class PowerMonitor {
             }
         }
     }
+    var resourceRefreshInterval: TimeInterval {
+        didSet {
+            let valid = Self.validatedInterval(resourceRefreshInterval)
+            if valid != resourceRefreshInterval { resourceRefreshInterval = valid }
+            defaults.set(valid, forKey: "systemResourcesRefreshInterval")
+            configureResourceMonitoring()
+        }
+    }
     static func validatedInterval(_ value: Double) -> Double {
         guard value.isFinite else { return 2 }
         return min(refreshIntervalRange.upperBound, max(refreshIntervalRange.lowerBound, value))
@@ -94,14 +253,26 @@ final class PowerMonitor {
     private var timeEstimator = BatteryTimeEstimator()
 
     init(defaults: UserDefaults = .standard, energyModes: EnergyModeController? = nil,
+         systemMetrics: SystemMetricsMonitor? = nil,
          immediateSampler: ImmediatePowerSampler = .init(
             request: { try await PrivilegedEnergyHelper.shared.requestBatterySample() },
             readTimestamp: { SystemBatterySampling.updateTimestamp() })) {
         self.defaults = defaults
+        menuBarOrder = MenuBarItemKind.normalized(defaults.stringArray(forKey: "menuBarItemOrder"))
         self.immediateSampler = immediateSampler
         self.energyModes = energyModes ?? EnergyModeController()
+        self.systemMetrics = systemMetrics ?? SystemMetricsMonitor()
         let savedInterval = defaults.object(forKey: "powerRefreshInterval") as? Double ?? 2
         updateInterval = Self.validatedInterval(savedInterval)
+        resourceRefreshInterval = Self.validatedInterval(defaults.object(forKey: "systemResourcesRefreshInterval") as? Double ?? 2)
+        showCPUInMenuBar = defaults.object(forKey: "showCPUInMenuBar") as? Bool ?? true
+        showGPUInMenuBar = defaults.object(forKey: "showGPUInMenuBar") as? Bool ?? true
+        showMemoryInMenuBar = defaults.object(forKey: "showMemoryInMenuBar") as? Bool ?? true
+        showNetworkInMenuBar = defaults.object(forKey: "showNetworkInMenuBar") as? Bool ?? true
+        showTemperatureInMenuBar = defaults.bool(forKey: "showTemperatureInMenuBar")
+        showFansInMenuBar = defaults.bool(forKey: "showFansInMenuBar")
+        showDiskInMenuBar = defaults.bool(forKey: "showDiskInMenuBar")
+        memoryAccounting = (defaults.string(forKey: "memoryAccounting").flatMap(MemoryAccounting.init(rawValue:))) ?? .cacheAdjusted
         showBatteryInMenuBar = defaults.object(forKey: Self.showBatteryInMenuBarKey) as? Bool ?? true
         launchAtLogin = (SMAppService.mainApp.status == .enabled)
         showPowerInMenuBar = defaults.bool(forKey: Self.showPowerInMenuBarKey)
@@ -159,6 +330,7 @@ final class PowerMonitor {
         scheduleTimer()
         setupPowerSourceNotification()
         energyModes.startMonitoring(interval: updateInterval)
+        configureResourceMonitoring()
 
         let center = NSWorkspace.shared.notificationCenter
         workspaceObservers.append(
@@ -189,6 +361,7 @@ final class PowerMonitor {
         isMonitoring = false
         samplingTask?.cancel()
         energyModes.stopMonitoring()
+        systemMetrics.stop()
         timeEstimator.reset()
         timer?.invalidate()
         timer = nil
@@ -212,6 +385,7 @@ final class PowerMonitor {
         samplingTask?.cancel()
         cancelPendingRefreshes()
         energyModes.stopMonitoring()
+        systemMetrics.stop()
         timeEstimator.reset()
         timer?.invalidate()
         timer = nil
@@ -221,6 +395,7 @@ final class PowerMonitor {
         guard isMonitoring else { return }
         isSleeping = false
         energyModes.startMonitoring(interval: updateInterval)
+        configureResourceMonitoring()
         updateData()
         if timer == nil {
             scheduleTimer()
@@ -377,10 +552,12 @@ final class PowerMonitor {
 
     // MARK: - IOKit Reading
 
-    private nonisolated func readPowerData() -> (PowerData, Bool) {
+    private func readPowerData() -> (PowerData, Bool) {
         guard let props = getIOServiceProperties(className: "AppleSmartBattery") else {
+            batteryMetadata = BatteryMetadataCache()
             return (.empty, false)
         }
+        let metadata = batteryMetadata.read(properties: props)
 
         // Basic battery info
         let isOnAC = extractBool(from: props, key: "ExternalConnected") ?? false
@@ -394,8 +571,8 @@ final class PowerMonitor {
         let cycleCount = extractInt(from: props, key: "CycleCount")
 
         // Device info
-        let batterySerial = extractString(from: props, key: "Serial")
-        let deviceName = extractString(from: props, key: "DeviceName")
+        let batterySerial = metadata.serial
+        let deviceName = metadata.deviceName
         let instantAmperage = extractInt(from: props, key: "InstantAmperage")
         let atCriticalLevel = extractBool(from: props, key: "AtCriticalLevel")
         let permanentFailure = extractInt(from: props, key: "PermanentFailureStatus")
@@ -408,8 +585,7 @@ final class PowerMonitor {
         let nominalChargeCapacity = capacitySnapshot.nominalChargeCapacityMAH
         let batteryHealthPercent = capacitySnapshot.healthPercent
         let temperature = capacitySnapshot.temperatureCentidegrees
-        let designCycleCount = extractInt(from: props, key: "DesignCycleCount9C")
-            ?? extractInt(from: props, key: "DesignCycleCount70")
+        let designCycleCount = metadata.designCycleCount
 
         // Adapter details
         let adapterDetails = extractDict(from: props, key: "AdapterDetails")
@@ -427,7 +603,10 @@ final class PowerMonitor {
 
         // BatteryData (deep)
         let batteryData = extractDict(from: props, key: "BatteryData")
-        let cellTelemetry = readBatteryCellTelemetry(packBatteryData: batteryData)
+        #if POWER_TOP_TESTING
+        if isBatteryDetailsVisible { batteryCellReadCount += 1 }
+        #endif
+        let cellTelemetry = isBatteryDetailsVisible ? readBatteryCellTelemetry(packBatteryData: batteryData) : nil
         let cellVoltages = cellTelemetry?.voltagesMV
         let qmax = cellTelemetry?.qmaxMAH
         let batteryCellLayout = cellTelemetry?.layout
@@ -445,10 +624,10 @@ final class PowerMonitor {
             ?? extractInt(from: props, key: "AvgTimeToEmpty")
         let avgTimeToFull = batteryData.flatMap { extractInt(from: $0, key: "AvgTimeToFull") }
             ?? extractInt(from: props, key: "AvgTimeToFull")
-        let manufactureDateStr = readBatteryManufactureDate(from: props)
+        let manufactureDateStr = metadata.manufactureDate
 
         // LifetimeData
-        let lifetimeData = batteryData.flatMap { extractDict(from: $0, key: "LifetimeData") }
+        let lifetimeData = isBatteryDetailsVisible ? batteryData.flatMap { extractDict(from: $0, key: "LifetimeData") } : nil
         let totalOpTime = lifetimeData.flatMap { extractInt(from: $0, key: "TotalOperatingTime") }
         let ltMaxTemp = lifetimeData.flatMap { extractInt(from: $0, key: "MaximumTemperature") }
         let ltMinTemp = lifetimeData.flatMap { extractInt(from: $0, key: "MinimumTemperature") }
